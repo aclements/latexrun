@@ -1,0 +1,491 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import argparse
+import shlex
+import json
+import subprocess
+import re
+import collections
+import hashlib
+
+def debug(string, *args):
+    if debug.enabled:
+        print(string.format(*args), file=sys.stderr)
+debug.enabled = False
+
+def main():
+    # Parse command-line
+    arg_parser = argparse.ArgumentParser(
+        description='Run LaTeX/BibTeX the right number of times')
+    arg_parser.add_argument(
+        '--latex-cmd', metavar='CMD', default='pdflatex',
+        help='Latex command (default: %(default)s)')
+    arg_parser.add_argument(
+        '--latex-args', metavar='ARGS', type=arg_parser_shlex,
+        help='Additional command-line arguments for latex.'
+        ' This will be parsed and split using POSIX shell rules.')
+    arg_parser.add_argument(
+        '--bibtex-cmd', metavar='CMD', default='bibtex',
+        help='Bibtex command (default: %(default)s)')
+    arg_parser.add_argument(
+        '--bibtex-args', metavar='ARGS', type=arg_parser_shlex,
+        help='Additional command-line arguments for bibtex')
+    arg_parser.add_argument(
+        '--max-iterations', metavar='N', type=int, default=10,
+        help='Max number of times to run latex before giving up'
+        ' (default: %(default)s)')
+    arg_parser.add_argument(
+        '--debug', action='store_true',
+        help='Enable detailed debug output')
+    actions = arg_parser.add_argument_group('actions')
+    actions.add_argument(
+        '--clean', action='store_true', help='Delete output files')
+    actions.add_argument(
+        'file', nargs='?', help='Compile TeX file')
+    args = arg_parser.parse_args()
+    if not any([args.clean, args.file]):
+        arg_parser.error('at least one action is required')
+    args.latex_args = args.latex_args or []
+    args.bibtex_args = args.bibtex_args or []
+
+    debug.enabled = args.debug
+
+    # Open control database
+    # XXX Is there a better place to put this?  If I'm cleaning, I
+    # don't have a file name, so it can't be relative to that.
+    dbpath = '.latexrun'
+    try:
+        db = DB(dbpath)
+    except (ValueError, OSError) as e:
+        print('error opening {}: {}'.format(dbpath, e),
+              file=sys.stderr)
+        sys.exit(1)
+
+    # Clean
+    if args.clean:
+        try:
+            db.do_clean()
+        except OSError as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
+
+    # Build
+    if not args.file:
+        return
+    try:
+        tasks = [LaTeX(db, args.file, args.latex_cmd, args.latex_args),
+#                 BibTeX(db, XXX)
+        ]
+        if not run_tasks(tasks, args.max_iterations):
+            # XXX Still print final output
+            print('error: files are still changing after {} iterations; giving up'
+                  .format(args.max_iterations), file=sys.stderr)
+            # XXX Exit with an error
+        # XXX Print final output of tasks
+    except TaskError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+class TaskError(Exception):
+    pass
+
+def arg_parser_shlex(string):
+    """Argument parser for shell token lists."""
+    try:
+        return shlex.split(string)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+
+def run_tasks(tasks, max_iterations):
+    """Execute tasks in round-robin order until all are stable.
+
+    Return True if fixed-point is reached within max_iterations
+    iterations.
+    """
+
+    nstable = 0
+    for iteration in range(max_iterations):
+        for task in tasks:
+            if task.stable():
+                nstable += 1
+                if nstable == len(tasks):
+                    debug('fixed-point reached')
+                    return True
+            else:
+                task.run()
+                nstable = 0
+    debug('fixed-point not reached')
+    return False
+
+class DB:
+    """A latexrun control database."""
+
+    _VERSION = 'latexrun-db-v1'
+
+    def __init__(self, filename):
+        self.__filename = filename
+
+        try:
+            fp = open(filename, 'r')
+        except FileNotFoundError:
+            debug('creating new database')
+            self.__val = {'version': DB._VERSION}
+        else:
+            debug('loading database')
+            self.__val = json.load(fp)
+            if 'version' not in self.__val:
+                raise ValueError('file exists, but does not appear to be a latexrun database'.format(filename))
+            if self.__val['version'] != DB._VERSION:
+                raise ValueError('unknown database version {!r}'
+                                 .format(self.__val['version']))
+
+    def commit(self):
+        debug('committing database')
+        tmp_filename = self.__filename + '.tmp'
+        with open(tmp_filename, 'w') as fp:
+            json.dump(self.__val, fp, indent=2, separators=(',', ': '))
+            fp.flush()
+            os.fsync(fp.fileno())
+        os.rename(tmp_filename, self.__filename)
+
+    def get_summary(self, task_id):
+        """Return the recorded summary for the given task."""
+        return self.__val.get('tasks', {}).get(task_id)
+
+    def set_summary(self, task_id, summary):
+        """Set the summary for the given task."""
+        self.__val.setdefault('tasks', {})[task_id] = summary
+
+    def add_clean(self, filename):
+        """Add an output file to be cleaned.
+
+        Unlike the output files recorded in the task summaries,
+        cleanable files strictly accumulate until a clean is
+        performed.
+        """
+        self.__val.setdefault('clean', {})[filename] = hash_cache.get(filename)
+
+    def do_clean(self):
+        """Remove output files and delete database."""
+
+        for f, want_hash in self.__val.get('clean', {}).items():
+            have_hash = hash_cache.get(f)
+            if have_hash is not None:
+                if want_hash == have_hash:
+                    debug('unlinking {}', f)
+                    hash_cache.invalidate(f)
+                    os.unlink(f)
+                else:
+                    print('warning: {} has changed; not removing'.format(f),
+                          file=sys.stderr)
+        self.__val = {'version': DB._VERSION}
+        try:
+            os.unlink(self.__filename)
+        except FileNotFoundError:
+            pass
+
+class HashCache:
+    """Cache of file hashes.
+
+    As latexrun reaches fixed-point, it hashes the same files over and
+    over, many of which never change.  Since hashing is somewhat
+    expensive, we keep a simple cache of these hashes.
+    """
+
+    def __init__(self):
+        self.__cache = {}
+
+    def get(self, filename):
+        try:
+            with open(filename, 'rb') as fp:
+                st = os.fstat(fp.fileno())
+                key = (st.st_dev, st.st_ino)
+                if key in self.__cache:
+                    return self.__cache[key]
+
+                debug('hashing {}', filename)
+                h = hashlib.sha256()
+                while True:
+                    block = fp.read(256*1024)
+                    if not len(block):
+                        break
+                    h.update(block)
+                self.__cache[key] = h.hexdigest()
+                return self.__cache[key]
+        except FileNotFoundError:
+            return None
+
+    def invalidate(self, filename):
+        try:
+            st = os.stat(filename)
+        except OSError as e:
+            # Pessimistically wipe the whole cache
+            debug('wiping hash cache ({})', e)
+            self.__cache.clear()
+        else:
+            key = (st.st_dev, st.st_ino)
+            if key in self.__cache:
+                del self.__cache[key]
+hash_cache = HashCache()
+
+class Task:
+    """A deterministic computation whose inputs and outputs can be captured."""
+
+    def __init__(self, db, task_id):
+        self.__db = db
+        self.__task_id = task_id
+
+    def __debug(self, string, *args):
+        if debug.enabled:
+            debug('task {}: {}', self.__task_id, string.format(*args))
+
+    def stable(self):
+        """Return True if running this task will not affect system state.
+
+        Functionally, let f be the task, and s be the system state.
+        Then s' = f(s).  If it must be that s' == s (that is, f has
+        reached a fixed point), then this function must return True.
+        """
+        last_summary = self.__db.get_summary(self.__task_id)
+        if last_summary is None:
+            # Task has never run, so running it will modify system
+            # state
+            changed = 'never run'
+        else:
+            # If any of the inputs have changed since the last run of
+            # this task, the result may change, so re-run the task.
+            # Also, it's possible something else changed an output
+            # file, in which case we also want to re-run the task, so
+            # check the outputs, too.
+            changed = self.__summary_changed(last_summary)
+
+        if changed:
+            self.__debug('unstable (changed: {})', changed)
+            return False
+        else:
+            self.__debug('stable')
+            return True
+
+    def run(self):
+        # Before we run the task, hash any files that were *both* an
+        # input and an output during the last run.  It's likely that
+        # they'll be overwritten again by this run, and if they are,
+        # it'll be too late get input hashes for these files.
+        last_summary = self.__db.get_summary(self.__task_id)
+        prehashes = {}
+        if last_summary is not None:
+            for io_filename in set(last_summary['input_files']).\
+                intersection(last_summary['output_files']):
+                self.__debug('pre-hashing {}', io_filename)
+                prehashes[io_filename] = hash_cache.get(io_filename)
+
+        # Run the task
+        self.__debug('running')
+        result = self.execute()
+
+        # Clear cached output file hashes
+        for filename in result.output_filenames:
+            hash_cache.invalidate(filename)
+
+        # Update task summary in database
+        summary = self.__get_summary(result, prehashes)
+        self.__db.set_summary(self.__task_id, summary)
+        # XXX Do something with result.stderr
+
+        # Add output files to be cleaned
+        for f in result.output_filenames:
+            self.__db.add_clean(f)
+
+        self.__db.commit()
+
+    def get_config(self):
+        """Return the configuration of this task.
+
+        This is treated as an additional input, so if it differs from
+        the previous run of this task, the task will be re-run.  This
+        can be any JSON-able type.  The default implementation returns
+        None.
+        """
+        return None
+
+    def __get_summary(self, task_result, prehashes):
+        """Return a task summary.
+
+        This combines the task configuration, and all inputs and
+        outputs.
+        """
+        input_files = {}
+        for f in task_result.input_filenames:
+            if f in prehashes:
+                # We speculatively hashed this file before running the
+                # task
+                input_files[f] = prehashes[f]
+            elif f in task_result.output_filenames:
+                # This was both an input and an output file and now
+                # it's too late to get an input hash.  Use a dummy to
+                # force a re-run (we'll prehash it then)
+                self.__debug('input overwritten: {}', f)
+                input_files[f] = '*'
+            else:
+                input_files[f] = hash_cache.get(f)
+
+        summary = {
+            'config': self.get_config(),
+            'env': {v: os.environ.get(v) for v in task_result.env_vars},
+            'input_files': input_files,
+            'output_files': {f: hash_cache.get(f)
+                             for f in task_result.output_filenames},
+        }
+        return summary
+
+    def __summary_changed(self, summary):
+        """Test if any inputs or outputs have changed from summary.
+
+        Returns a string describing the changed input, or None.
+        """
+        # Check in order from easy to hard
+        if self.get_config() != summary['config']:
+            return 'configuration'
+        for k, v in summary['env'].items():
+            if os.environ.get(k) != v:
+                return k
+        for k, v in summary['input_files'].items():
+            if hash_cache.get(k) != v:
+                return k
+        for k, v in summary['output_files'].items():
+            if hash_cache.get(k) != v:
+                return k
+        return None
+
+    def execute(self):
+        """Abstract: Execute this task.
+
+        Subclasses should implement this method to execute this task.
+        This method must return a TaskResult giving the inputs that
+        were used by the task and the outputs it produced.
+        """
+        raise NotImplementedError('Task.execute is abstract')
+
+class TaskResult(collections.namedtuple(
+        'TaskResult', 'input_filenames output_filenames env_vars stderr')):
+    pass
+
+class LaTeX(Task):
+    def __init__(self, db, tex_filename, cmd, cmd_args):
+        super().__init__(db, 'latex::' +
+                         os.path.relpath(os.path.realpath(tex_filename)))
+        self.__tex_filename = tex_filename
+        self.__cmd = cmd
+        self.__cmd_args = cmd_args
+
+    def __get_args(self):
+        # If filename starts with a character the tex command-line
+        # treats specially, then tweak it so it doesn't.
+        filename = self.__tex_filename
+        if filename.startswith(('-', '&', '\\')):
+            filename = './' + filename
+        return [self.__cmd] + self.__cmd_args + \
+            ['-interaction', 'nonstopmode', '-recorder', filename]
+
+    def get_config(self):
+        return {'args': self.__get_args()}
+
+    def execute(self):
+        # Run latex
+        # XXX Parse output
+        args = self.__get_args()
+        debug('running', args)
+        try:
+            p = subprocess.Popen(args,
+                                 stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT)
+            (stdout, _) = p.communicate()
+            print(stdout.decode()) # XXX
+            status = p.returncode
+        except OSError as e:
+            raise TaskError('failed to execute latex task: ' + str(e)) from e
+
+        jobname = self.__get_jobname(stdout)
+        inputs, outputs = self.__parse_recorder(jobname)
+        env_vars = ['TEXMFOUTPUT', 'TEXINPUTS', 'TEXFORMATS', 'TEXPOOL',
+                    'TFMFONTS', 'PATH']
+        return TaskResult(inputs, outputs, env_vars, stdout)
+
+    def __get_jobname(self, stdout):
+        """Extract the job name from latex's output.
+
+        We get this from latex because it depends on complicated file
+        name parsing rules, is affected by arguments like
+        -output-directory, and may be just "texput" if things fail
+        really early.
+        """
+        jobname = None
+        for m in re.finditer(br'^Transcript written on (.*)\.log\.$', stdout,
+                             re.MULTILINE):
+            jobname = m.group(1)
+        if jobname is None:
+            print(stdout.decode(), file=sys.stderr)
+            raise TaskError('failed to extract job name from latex log')
+        return jobname
+
+    def __parse_recorder(self, jobname):
+        """Parse file recorder output."""
+        # XXX If latex fails because a file isn't found, that doesn't
+        # go into the .fls file, but creating that file will affect
+        # the computation, so it should be included as an input.
+        # Though it's generally true that files can be added earlier
+        # in search paths and will affect the output without us knowing.
+        filename = jobname + b'.fls'
+        try:
+            recorder = open(filename)
+        except OSError as e:
+            raise TaskError('failed to open file recorder output: ' + str(e)) \
+                from e
+        pwd, inputs, outputs = '', set(), set()
+        for linenum, line in enumerate(recorder):
+            parts = line.rstrip('\n').split(' ', 1)
+            if parts[0] == 'PWD':
+                pwd = parts[1]
+            elif parts[0] == 'INPUT':
+                inputs.add(os.path.join(pwd, parts[1]))
+            elif parts[0] == 'OUTPUT':
+                outputs.add(os.path.join(pwd, parts[1]))
+            else:
+                raise TaskError('syntax error on line {} of {}'
+                                .format(linenum, filename))
+        # Ironically, latex omits the .fls file itself
+        outputs.add(filename.decode())
+        return inputs, outputs
+
+class BibTeX(Task):
+    def stable(self, db):
+        # XXX First check if bibtex even has its input files
+
+        # XXX If bibtex's inputs aren't ready, then bibtex will simply
+        # fail without affecting system state, so this task is
+        # trivially stable.
+        if not XXX_have_inputs:
+            return True
+        return super().stable(db)
+
+class Kpathsea:
+    def __init__(self, program_name):
+        self.__progname = program_name
+
+    def find_file(self, name, format):
+        """Return the resolved path of 'name' or None."""
+
+        args = ['kpsewhich', '-progname', self.__progname, '-format', format,
+                name]
+        try:
+            return subprocess.check_output(args, universal_newlines=True).strip()
+        except subprocess.CalledProcessError as e:
+            if e.returncode != 1:
+                raise
+            return None
+
+if __name__ == "__main__":
+    main()
