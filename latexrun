@@ -416,7 +416,6 @@ class LaTeX(Task):
 
     def _execute(self):
         # Run latex
-        # XXX Parse output
         args = self.__get_args()
         debug('running', args)
         try:
@@ -425,8 +424,6 @@ class LaTeX(Task):
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT)
             stdout = self.__feed_terminal(p.stdout)
-            # XXX Do something with the status.  If there's a fatal
-            # error, should we stop immediately?  Are errors stable?
             status = p.wait()
         except OSError as e:
             raise TaskError('failed to execute latex task: ' + str(e)) from e
@@ -449,12 +446,12 @@ class LaTeX(Task):
                 break
             buf.append(data)
             filt.feed(data)
-            current_file = filt.get_current_file()
-            if current_file:
+            file_stack = filt.get_file_stack()
+            if file_stack:
                 # XXX Generalize progress reporting
                 # XXX Deduplicate messages
                 sys.stderr.write('\r\x1b[K\x1b[?7l' + '[latex] ' +
-                                 current_file[:79] +
+                                 file_stack[-1] +
                                  '\x1b[?7h')
                 sys.stderr.flush()
         sys.stderr.write('\r\x1b[K')
@@ -525,6 +522,12 @@ class LaTeXFilter:
         self.__messages = []
 
     def feed(self, data, eof=False):
+        """Feed bytes of LaTeX log data to the parser.
+
+        The log data can be from LaTeX's standard output, or from the
+        log file.  If there will be no more data, set eof to True.
+        """
+
         self.__data += data
         self.__data_complete = eof
 
@@ -544,14 +547,23 @@ class LaTeXFilter:
         return self
 
     def get_messages(self):
+        """Return a list of warning and error strings."""
         return self.__messages
 
-    def get_current_file(self):
-        if self.__file_stack:
-            return self.__file_stack[-1]
-        return None
+    def get_file_stack(self):
+        """Return the file stack for the data that has been parsed.
+
+        This results a list from outermost file to innermost file.
+        The list may be empty.
+        """
+
+        return self.__file_stack
 
     def __save_restart_point(self):
+        """Save the current state as a known-good restart point.
+
+        On the next call to feed, the parser will reset to this point.
+        """
         self.__restart_pos = self.__pos
         self.__restart_file_stack = self.__file_stack.copy()
         self.__restart_messages_len = len(self.__messages)
@@ -566,6 +578,7 @@ class LaTeXFilter:
         self.__messages.append('{}: {}: {}'.format(pos, typ, msg))
 
     def __ensure_line(self):
+        """Update lstart and lend."""
         if self.__lstart <= self.__pos < self.__lend:
             return
         self.__lstart = self.__data.rfind(b'\n', 0, self.__pos) + 1
@@ -575,6 +588,7 @@ class LaTeXFilter:
 
     @property
     def __col(self):
+        """The 0-based column number of __pos."""
         self.__ensure_line()
         return self.__pos - self.__lstart
 
