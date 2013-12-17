@@ -404,6 +404,10 @@ class LaTeX(Task):
                                  stderr=subprocess.STDOUT)
             (stdout, _) = p.communicate()
             print(stdout.decode()) # XXX
+            print('------------------------------')
+            LaTeXFilter(stdout) # XXX
+            # XXX Do something with the status.  If there's a fatal
+            # error, should we stop immediately?  Are errors stable?
             status = p.returncode
         except OSError as e:
             raise TaskError('failed to execute latex task: ' + str(e)) from e
@@ -460,6 +464,241 @@ class LaTeX(Task):
         outputs.add(filename.decode())
         return inputs, outputs
 
+class LaTeXFilter:
+    def __init__(self, data):
+        self.__data = data
+        self.__pos = 0
+        self.__lstart = self.__lend = -1
+        self.__file_stack = ['<no file>']
+        self.__close_stack = []
+
+        while not self.__eof:
+            self.__noise()
+
+    def __message(self, typ, lineno, msg):
+        # XXX Just omit line if there isn't one
+        print('{}:{}: {}: {}'.format(self.__file_stack[-1],
+                                     '<no line>' if lineno is None else lineno,
+                                     typ, msg),
+              file=sys.stderr)
+
+    def __ensure_line(self):
+        if self.__lstart <= self.__pos < self.__lend:
+            return
+        self.__lstart = self.__data.rfind(b'\n', 0, self.__pos) + 1
+        self.__lend = self.__data.find(b'\n', self.__pos) + 1
+        if self.__lend == 0:
+            self.__lend = len(self.__data)
+
+    @property
+    def __col(self):
+        self.__ensure_line()
+        return self.__pos - self.__lstart
+
+    @property
+    def __eof(self):
+        return self.__pos == len(self.__data)
+
+    def __lookingat(self, needle):
+        return self.__data.startswith(needle, self.__pos)
+
+    def __lookingatre(self, regexp, flags=0):
+        return re.compile(regexp, flags=flags).match(self.__data, self.__pos)
+
+    def __skip_line(self):
+        self.__ensure_line()
+        self.__pos = self.__lend
+
+    def __consume_line(self, unwrap=False):
+        self.__ensure_line()
+        data = self.__data[self.__pos:self.__lend]
+        self.__pos = self.__lend
+        if unwrap:
+            # TeX helpfully wraps all terminal output at 79 columns
+            # (max_print_line).  If requested, unwrap it.  There's
+            # simply no way to do this perfectly, since there could be
+            # a line that happens to be 79 columns.
+            while self.__lend - self.__lstart == 80:
+                self.__ensure_line()
+                data = data[:-1] + self.__data[self.__pos:self.__lend]
+                self.__pos = self.__lend
+        return data
+
+    # Parser productions
+
+    def __noise(self):
+        # Most of TeX's output is line noise that combines error
+        # messages, warnings, file names, user errors and warnings,
+        # and echos of token lists and other input.  This attempts to
+        # tease these apart, paying particular attention to all of the
+        # places where TeX echos input so that parens in the input do
+        # not confuse the file name scanner.  There are three
+        # functions in TeX that echo input: show_token_list (used by
+        # runaway and show_context, which is used by print_err),
+        # short_display (used by overfull/etc h/vbox), and show_print
+        # (used in issue_message and the same places as
+        # show_token_list).
+        lookingat, lookingatre = self.__lookingat, self.__lookingatre
+        if self.__col == 0:
+            # The following messages are always preceded by a newline
+            if lookingat(b'!'):
+                return self.__errmessage()
+            if lookingat(b'Runaway '):
+                return self.__runaway()
+            if lookingatre(br'(Overfull|Underfull|Loose|Tight) \\[hv]box \('):
+                return self.__bad_box()
+            if lookingatre(b'(Package |Class |LaTeX |pdfTeX )?(\w+ )?warning: ', re.I):
+                return self.__generic_warning()
+            # Other things that are common and irrelevant
+            if lookingatre(br'(Package|Class|LaTeX) (\w+ )?info: ', re.I):
+                return self.__generic_info()
+            if lookingatre(br'(Document Class|File|Package): '):
+                # Output from "\ProvidesX"
+                return self.__consume_line(unwrap=True)
+            if lookingatre(br'\\\w+=\\[a-z]+\d+\n'):
+                # Output from "\new{count,dimen,skip,...}"
+                return self.__consume_line(unwrap=True)
+
+        print(self.__data[self.__lstart:self.__lend].decode().rstrip())
+        self.__pos = self.__lend
+        return
+
+        # Now that we've substantially reduced the spew and hopefully
+        # eliminated all input echoing, we're left with the file name
+        # stack, page outs, and random other messages from both TeX
+        # and various packages.  We'll assume at this point that all
+        # parentheses belong to the file name stack or, if they're in
+        # random other messages, they're at least balanced and nothing
+        # interesting happens between them.
+        m = re.compile(b'[(){}\n]').search(self.__data, self.__pos)
+        if m is None:
+            self.__pos = len(self.__data)
+            return
+#        print(self.__data[self.__pos:m.start()].decode())
+        self.__pos = m.start() + 1
+        ch = self.__data[m.start()]
+        if ch == ord('\n'):
+            pass
+        elif ch == ord('('):
+            # XXX Check that the stack doesn't drop to empty and then re-grow
+            self.__file_stack.append(self.__filename())
+        elif ch == ord(')'):
+            if len(self.__file_stack) > 1:
+                self.__file_stack.pop()
+            else:
+                self.__message('warning', None,
+                               "extra `)' in log; file names may be wrong "+str(self.__pos))
+        elif ch == ord('{'):
+            # TeX uses this for various things we want to ignore, like
+            # file names and print_mark.  Consume up to the '}'
+            epos = self.__data.find(b'}', self.__pos)
+            if epos != -1:
+                self.__pos = epos + 1
+            else:
+                self.__message('warning', None,
+                               "unbalanced `{' in log; file names may be wrong")
+        elif ch == ord('}'):
+            self.__message('warning', None,
+                           "extra `}' in log; file names may be wrong")
+
+    def __filename(self):
+        initcol = self.__col
+        first = True
+        name = ''
+        # File names may wrap, but if they do, TeX will always print a
+        # newline before the open paren
+        while first or (initcol == 1 and self.__col == 79):
+            if not first:
+                self.__pos += 1
+            m = self.__lookingatre(br'[^(){} \n]*')
+            name += m.group().decode()
+            self.__pos = m.end()
+            first = False
+        return name
+
+    def __runaway(self):
+        # Procedure runaway.  Prints "\nRunaway ...\n" followed by
+        # token list (user text).  Always followed by a call to
+        # print_err, so skip lines until we see the print_err.
+        self.__skip_line()      # Skip "Runaway ...\n"
+        self.__skip_line()      # Skip token list
+        while not self.__lookingat(b'!') and not self.__eof:
+            self.__skip_line()
+
+    def __errmessage(self):
+        # Procedure print_err (including \errmessage, itself used by
+        # LaTeX's \GenericError and all of its callers), or
+        # pdftex_fail.  Prints "\n!" followed by error text, a newline
+        # ...
+        msg = self.__consume_line(unwrap=True)[1:].strip()
+        # ... error context (from show_context; user text), a newline,
+        # then usually "l.[0-9]+ " giving the line number, then a
+        # "pseudoprint" of the errant line, with a line break where
+        # the error occurred.
+        self.__skip_line()      # Error context will never wrap
+        while not self.__lookingatre(b'l.[0-9]+ |\n|$'):
+            self.__skip_line()
+        if self.__lookingat(b'l.'):
+            # The errant line will never wrap
+            info = self.__consume_line().split(b' ', 1)
+            lineno = int(info[0][2:])
+        else:
+            lineno = None
+        # XXX This blank line is only guaranteed in the log!
+        while not self.__lookingat(b'\n') and not self.__eof:
+            self.__skip_line()
+        self.__message('error', lineno, msg.decode())
+
+    def __bad_box(self):
+        # Function hpack and vpack.  hpack prints a warning, a
+        # newline, then a short_display of the offending text.
+        # Unfortunately, there's nothing indicating the end of the
+        # offending text, but it should be on one "line".  vpack
+        # prints a warning and then, *unless output is active*, a
+        # newline.  The missing newline is probably a bug.
+        msg = self.__consume_line().strip()
+        m = re.search(b' in (?:paragraph|alignment) at lines ([0-9]+)--([0-9]+)', msg) or \
+            re.search(b' detected at line ([0-9]+)', msg)
+        if m:
+            lineno = int(m.group(1))
+            msg = msg[:m.start()]
+        else:
+            lineno = None
+        # The offending text may be missing.  If there is offending
+        # text, it will start with a font name, which will start with
+        # a \.
+        # XXX Not reliable.  In log, there were be a blank line.
+        if b'hbox' in msg and self.__lookingat(b'\\'):
+            self.__consume_line(unwrap=True)
+        self.__message('warning', lineno, msg.decode())
+
+    def __generic_warning(self):
+        # Warnings produced by LaTeX's \GenericWarning (which is
+        # called by \{Package,Class}Warning and \@latex@warning),
+        # warnings produced by pdftex_warn, and other random warnings.
+        msg = self.__generic_info()
+        # Most warnings include an input line emitted by \on@line
+        m = re.match(b' on input line ([0-9]+)', msg)
+        if m:
+            lineno = int(m.group(1))
+            msg = msg[m.start()]
+        else:
+            lineno = None
+        msg = re.sub(b' ?warning:', b':', msg, flags=re.I)
+        self.__message('warning', lineno, msg.decode())
+
+    def __generic_info(self):
+        # Messages produced by LaTeX's \Generic{Error,Warning,Info}
+        # and things that look like them
+        msg = self.__consume_line(unwrap=True).strip()
+        # Package and class messages are continued with lines
+        # containing '(package name)            '
+        pkg_name = msg.split(b' ', 2)[1]
+        prefix = b'(' + pkg_name + b')            '
+        while self.__lookingat(prefix):
+            self.__consume_line(unwrap=True)
+        return msg
+
 class BibTeX(Task):
     def stable(self, db):
         # XXX First check if bibtex even has its input files
@@ -467,9 +706,19 @@ class BibTeX(Task):
         # XXX If bibtex's inputs aren't ready, then bibtex will simply
         # fail without affecting system state, so this task is
         # trivially stable.
+
+        # XXX We don't know where the .aux file is until we've run
+        # LaTeX.
         if not XXX_have_inputs:
             return True
         return super().stable(db)
+
+    def execute(self):
+        # XXX BibTeX doesn't depend on the *whole* .aux file.  In
+        # fact, we can extract exactly what it depends on.  Maybe we
+        # shouldn't record the .aux as an input, but instead record
+        # the important parts in our task configuration?
+        pass
 
 class Kpathsea:
     def __init__(self, program_name):
