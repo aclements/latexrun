@@ -402,13 +402,10 @@ class LaTeX(Task):
                                  stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT)
-            (stdout, _) = p.communicate()
-            print(stdout.decode()) # XXX
-            print('------------------------------')
-            LaTeXFilter(stdout) # XXX
+            stdout = self.__feed_terminal(p.stdout)
             # XXX Do something with the status.  If there's a fatal
             # error, should we stop immediately?  Are errors stable?
-            status = p.returncode
+            status = p.wait()
         except OSError as e:
             raise TaskError('failed to execute latex task: ' + str(e)) from e
 
@@ -417,6 +414,29 @@ class LaTeX(Task):
         env_vars = ['TEXMFOUTPUT', 'TEXINPUTS', 'TEXFORMATS', 'TEXPOOL',
                     'TFMFONTS', 'PATH']
         return TaskResult(inputs, outputs, env_vars, stdout)
+
+    def __feed_terminal(self, stdout):
+        buf = []
+        filt = LaTeXFilter()
+        while True:
+            # Use os.read to read only what's available on the pipe,
+            # without waiting to fill a buffer
+            data = os.read(stdout.fileno(), 4096)
+            if not data:
+                break
+            buf.append(data)
+            filt.feed(data)
+            current_file = filt.get_current_file()
+            if current_file:
+                # XXX Generalize progress reporting
+                # XXX Deduplicate messages
+                sys.stderr.write('\r\x1b[K\x1b[?7l' + '[latex] ' +
+                                 current_file[:79] +
+                                 '\x1b[?7h')
+                sys.stderr.flush()
+        sys.stderr.write('\r\x1b[K')
+        sys.stderr.flush()
+        return b''.join(buf)
 
     def __get_jobname(self, stdout):
         """Extract the job name from latex's output.
@@ -465,19 +485,43 @@ class LaTeX(Task):
         return inputs, outputs
 
 class LaTeXFilter:
-    def __init__(self, data):
-        self.__data = data
-        self.__pos = 0
-        self.__lstart = self.__lend = -1
-        self.__file_stack = []
-        self.__close_stack = []
+    def __init__(self):
+        self.__data = b''
+        self.__restart_pos = 0
+        self.__restart_file_stack = []
+        self.__restart_messages_len = 0
+        self.__messages = []
 
-        while not self.__eof:
+    def feed(self, data, eof=False):
+        self.__data += data
+        self.__data_complete = eof
+
+        # Reset to last known-good restart point
+        self.__pos = self.__restart_pos
+        self.__file_stack = self.__restart_file_stack.copy()
+        self.__messages = self.__messages[:self.__restart_messages_len]
+        self.__lstart = self.__lend = -1
+
+        # Parse forward
+        while self.__pos < len(self.__data):
             self.__noise()
 
-        if len(self.__file_stack):
+        if eof and len(self.__file_stack):
             self.__message('warning', None,
                            "unbalanced `(' in log; file names may be wrong")
+
+    def get_messages(self):
+        return self.__messages
+
+    def get_current_file(self):
+        if self.__file_stack:
+            return self.__file_stack[-1]
+        return None
+
+    def __save_restart_point(self):
+        self.__restart_pos = self.__pos
+        self.__restart_file_stack = self.__file_stack.copy()
+        self.__restart_messages_len = len(self.__messages)
 
     def __message(self, typ, lineno, msg):
         pos = self.__file_stack[-1] if self.__file_stack else '<no file>'
@@ -486,7 +530,7 @@ class LaTeXFilter:
         if lineno is not None:
             pos += ':' + str(lineno)
 
-        print('{}: {}: {}'.format(pos, typ, msg), file=sys.stderr)
+        self.__messages.append('{}: {}: {}'.format(pos, typ, msg))
 
     def __ensure_line(self):
         if self.__lstart <= self.__pos < self.__lend:
@@ -502,8 +546,8 @@ class LaTeXFilter:
         return self.__pos - self.__lstart
 
     @property
-    def __eof(self):
-        return self.__pos == len(self.__data)
+    def __avail(self):
+        return self.__pos < len(self.__data)
 
     def __lookingat(self, needle):
         return self.__data.startswith(needle, self.__pos)
@@ -585,7 +629,10 @@ class LaTeXFilter:
         self.__pos = m.start() + 1
         ch = self.__data[m.start()]
         if ch == ord('\n'):
-            pass
+            # Save this as a known-good restart point for incremental
+            # parsing, since we definitely didn't match any of the
+            # known message types above.
+            self.__save_restart_point()
         elif ch == ord('('):
             # XXX Check that the stack doesn't drop to empty and then re-grow
             self.__file_stack.append(self.__filename())
@@ -641,7 +688,7 @@ class LaTeXFilter:
         # break where the error occurred.
         lineno = None
         found_context = False
-        while not self.__eof:
+        while self.__avail:
             if self.__lookingatre(br'<([a-z]+|\*|read [^ >]*)> '):
                 found_context = True
                 self.__skip_line()
@@ -670,7 +717,7 @@ class LaTeXFilter:
         # print_err, so skip lines until we see the print_err.
         self.__skip_line()      # Skip "Runaway ...\n"
         self.__skip_line()      # Skip token list
-        while not self.__lookingat(b'!') and not self.__eof:
+        while not self.__lookingat(b'!') and self.__avail:
             self.__skip_line()
 
     def __bad_box(self):
