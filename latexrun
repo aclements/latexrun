@@ -78,15 +78,21 @@ def main():
         tasks = [LaTeX(db, args.file, args.latex_cmd, args.latex_args),
 #                 BibTeX(db, XXX)
         ]
-        if not run_tasks(tasks, args.max_iterations):
-            # XXX Still print final output
+        stable = run_tasks(tasks, args.max_iterations)
+
+        # Print final task output and gather exit status
+        status = 0
+        for task in tasks:
+            status = max(task.report(), status)
+
+        if not stable:
             print('error: files are still changing after {} iterations; giving up'
                   .format(args.max_iterations), file=sys.stderr)
-            # XXX Exit with an error
-        # XXX Print final output of tasks
+            status = max(status, 1)
     except TaskError as e:
         print(str(e), file=sys.stderr)
-        sys.exit(1)
+        status = 1
+    sys.exit(status)
 
 class TaskError(Exception):
     pass
@@ -292,7 +298,6 @@ class Task:
         # Update task summary in database
         summary = self.__get_summary(result, prehashes)
         self.__db.set_summary(self.__task_id, summary)
-        # XXX Do something with result.stderr
 
         # Add output files to be cleaned
         for f in result.output_filenames:
@@ -337,6 +342,7 @@ class Task:
             'input_files': input_files,
             'output_files': {f: hash_cache.get(f)
                              for f in task_result.output_filenames},
+            'extra': task_result.extra,
         }
         return summary
 
@@ -368,8 +374,24 @@ class Task:
         """
         raise NotImplementedError('Task.execute is abstract')
 
+    def report(self):
+        """Report the task's results to stderr and return exit status."""
+        summary = self.__db.get_summary(self.__task_id)
+        if summary is None:
+            return 0
+        return self._report(summary['extra'])
+
+    def _report(self, extra):
+        """Abstract: Task-specific implementation of report.
+
+        If this task has run in the past (including in previous
+        invocations of latexrun), this will be called with the value
+        of TaskResult.extra returned by the last invocation of execute.
+        """
+        return 0
+
 class TaskResult(collections.namedtuple(
-        'TaskResult', 'input_filenames output_filenames env_vars stderr')):
+        'TaskResult', 'input_filenames output_filenames env_vars extra')):
     pass
 
 class LaTeX(Task):
@@ -413,7 +435,8 @@ class LaTeX(Task):
         inputs, outputs = self.__parse_recorder(jobname)
         env_vars = ['TEXMFOUTPUT', 'TEXINPUTS', 'TEXFORMATS', 'TEXPOOL',
                     'TFMFONTS', 'PATH']
-        return TaskResult(inputs, outputs, env_vars, stdout)
+        return TaskResult(inputs, outputs, env_vars,
+                          {'jobname': jobname, 'status': status})
 
     def __feed_terminal(self, stdout):
         buf = []
@@ -449,7 +472,7 @@ class LaTeX(Task):
         jobname = None
         for m in re.finditer(br'^Transcript written on (.*)\.log\.$', stdout,
                              re.MULTILINE):
-            jobname = m.group(1)
+            jobname = m.group(1).decode()
         if jobname is None:
             print(stdout.decode(), file=sys.stderr)
             raise TaskError('failed to extract job name from latex log')
@@ -462,7 +485,7 @@ class LaTeX(Task):
         # the computation, so it should be included as an input.
         # Though it's generally true that files can be added earlier
         # in search paths and will affect the output without us knowing.
-        filename = jobname + b'.fls'
+        filename = jobname + '.fls'
         try:
             recorder = open(filename)
         except OSError as e:
@@ -481,8 +504,17 @@ class LaTeX(Task):
                 raise TaskError('syntax error on line {} of {}'
                                 .format(linenum, filename))
         # Ironically, latex omits the .fls file itself
-        outputs.add(filename.decode())
+        outputs.add(filename)
         return inputs, outputs
+
+    def _report(self, extra):
+        # Parse the log
+        logfile = open(extra['jobname'] + '.log', 'rb')
+        for msg in LaTeXFilter().feed(logfile.read(), True).get_messages():
+            print(msg, file=sys.stderr)
+
+        # Return LaTeX's exit status
+        return extra['status']
 
 class LaTeXFilter:
     def __init__(self):
@@ -509,6 +541,7 @@ class LaTeXFilter:
         if eof and len(self.__file_stack):
             self.__message('warning', None,
                            "unbalanced `(' in log; file names may be wrong")
+        return self
 
     def get_messages(self):
         return self.__messages
