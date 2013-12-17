@@ -289,7 +289,7 @@ class Task:
 
         # Run the task
         self.__debug('running')
-        result = self.execute()
+        result = self._execute()
 
         # Clear cached output file hashes
         for filename in result.output_filenames:
@@ -365,14 +365,14 @@ class Task:
                 return k
         return None
 
-    def execute(self):
+    def _execute(self):
         """Abstract: Execute this task.
 
         Subclasses should implement this method to execute this task.
         This method must return a TaskResult giving the inputs that
         were used by the task and the outputs it produced.
         """
-        raise NotImplementedError('Task.execute is abstract')
+        raise NotImplementedError('Task._execute is abstract')
 
     def report(self):
         """Report the task's results to stderr and return exit status."""
@@ -414,7 +414,7 @@ class LaTeX(Task):
     def get_config(self):
         return {'args': self.__get_args()}
 
-    def execute(self):
+    def _execute(self):
         # Run latex
         # XXX Parse output
         args = self.__get_args()
@@ -832,7 +832,7 @@ class BibTeX(Task):
             return True
         return super().stable(db)
 
-    def execute(self):
+    def _execute(self):
         # XXX BibTeX doesn't depend on the *whole* .aux file.  In
         # fact, we can extract exactly what it depends on.  Maybe we
         # shouldn't record the .aux as an input, but instead record
