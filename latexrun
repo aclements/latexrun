@@ -577,13 +577,16 @@ class LaTeXFilter:
         self.__restart_messages_len = len(self.__messages)
 
     def __message(self, typ, lineno, msg):
-        pos = self.__file_stack[-1] if self.__file_stack else '<no file>'
-        if pos.startswith('./'):
-            pos = pos[2:]
+        out = self.__file_stack[-1] if self.__file_stack else '<no file>'
+        if out.startswith('./'):
+            out = out[2:]
         if lineno is not None:
-            pos += ':' + str(lineno)
+            out += ':' + str(lineno)
+        if typ != 'warning':
+            out += ': ' + typ
+        out += ': ' + msg
 
-        self.__messages.append('{}: {}: {}'.format(pos, typ, msg))
+        self.__messages.append(out)
 
     def __ensure_line(self):
         """Update lstart and lend."""
@@ -725,14 +728,20 @@ class LaTeXFilter:
             first = False
         return name
 
+    def __simplify_message(self, msg):
+        msg = re.sub(br'^(?:Package |Class )?([^ ]+) (?:Error|Warning): ',
+                     br'[\1] ', msg, flags=re.I)
+        msg = re.sub(br'\.$', b'', msg)
+        msg = re.sub(br'has occurred (while \\output is active)', br'\1', msg)
+        return msg
+
     def __errmessage(self):
         # Procedure print_err (including \errmessage, itself used by
         # LaTeX's \GenericError and all of its callers).  Prints "\n!
         # " followed by error text.  print_err is always followed by a
         # call to error, which prints a period, and a newline...
         msg = self.__consume_line(unwrap=True)[1:].strip()
-        msg = re.sub(b'^LaTeX Error: ', b'', msg)
-        msg = re.sub(br'\.$', b'', msg)
+        msg = self.__simplify_message(msg)
         # ... and then calls show_context, which prints the input
         # stack as pairs of lines giving the context.  These context
         # lines are truncated so they never wrap.  Each pair of lines
@@ -764,6 +773,7 @@ class LaTeXFilter:
         # message, and a newline.  Unlike print_err, there's never
         # context.
         msg = self.__consume_line(unwrap=True)[1:].strip()
+        msg = self.__simplify_message(msg)
         self.__message('error', None, msg.decode())
 
     def __runaway(self):
@@ -809,6 +819,7 @@ class LaTeXFilter:
             # name, which will start with a \.
             if b'hbox' in msg and self.__lookingat(b'\\'):
                 self.__consume_line(unwrap=True)
+        msg = self.__simplify_message(msg)
         self.__message('warning', lineno, msg.decode())
 
     def __generic_warning(self):
@@ -816,16 +827,14 @@ class LaTeXFilter:
         # called by \{Package,Class}Warning and \@latex@warning),
         # warnings produced by pdftex_warn, and other random warnings.
         msg = self.__generic_info()
-        msg = re.sub(b'^LaTeX Warning: ', b'', msg)
-        msg = re.sub(b' ?warning:', b':', msg, flags=re.I)
-        msg = re.sub(br'\.$', b'', msg)
         # Most warnings include an input line emitted by \on@line
-        m = re.match(b' on input line ([0-9]+)', msg)
+        m = re.search(b' on input line ([0-9]+)', msg)
         if m:
             lineno = int(m.group(1))
-            msg = msg[m.start()]
+            msg = msg[:m.start()]
         else:
             lineno = None
+        msg = self.__simplify_message(msg)
         self.__message('warning', lineno, msg.decode())
 
     def __generic_info(self):
@@ -837,7 +846,11 @@ class LaTeXFilter:
         pkg_name = msg.split(b' ', 2)[1]
         prefix = b'(' + pkg_name + b')            '
         while self.__lookingat(prefix):
-            self.__consume_line(unwrap=True)
+            # Collect extra lines.  It's important that we keep these
+            # because they may contain context information like line
+            # numbers.
+            extra = self.__consume_line(unwrap=True)
+            msg += b' ' + extra[len(prefix):].strip()
         return msg
 
 ##################################################################
