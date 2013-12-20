@@ -104,27 +104,6 @@ def arg_parser_shlex(string):
     except ValueError as e:
         raise argparse.ArgumentTypeError(str(e)) from None
 
-def run_tasks(tasks, max_iterations):
-    """Execute tasks in round-robin order until all are stable.
-
-    Return True if fixed-point is reached within max_iterations
-    iterations.
-    """
-
-    nstable = 0
-    for iteration in range(max_iterations):
-        for task in tasks:
-            if task.stable():
-                nstable += 1
-                if nstable == len(tasks):
-                    debug('fixed-point reached')
-                    return True
-            else:
-                task.run()
-                nstable = 0
-    debug('fixed-point not reached')
-    return False
-
 class DB:
     """A latexrun control database."""
 
@@ -235,6 +214,31 @@ class HashCache:
             if key in self.__cache:
                 del self.__cache[key]
 hash_cache = HashCache()
+
+##################################################################
+# Task framework
+#
+
+def run_tasks(tasks, max_iterations):
+    """Execute tasks in round-robin order until all are stable.
+
+    Return True if fixed-point is reached within max_iterations
+    iterations.
+    """
+
+    nstable = 0
+    for iteration in range(max_iterations):
+        for task in tasks:
+            if task.stable():
+                nstable += 1
+                if nstable == len(tasks):
+                    debug('fixed-point reached')
+                    return True
+            else:
+                task.run()
+                nstable = 0
+    debug('fixed-point not reached')
+    return False
 
 class Task:
     """A deterministic computation whose inputs and outputs can be captured."""
@@ -393,6 +397,10 @@ class Task:
 class TaskResult(collections.namedtuple(
         'TaskResult', 'input_filenames output_filenames env_vars extra')):
     pass
+
+##################################################################
+# LaTeX task
+#
 
 class LaTeX(Task):
     def __init__(self, db, tex_filename, cmd, cmd_args):
@@ -831,6 +839,10 @@ class LaTeXFilter:
         while self.__lookingat(prefix):
             self.__consume_line(unwrap=True)
         return msg
+
+##################################################################
+# BibTeX task
+#
 
 class BibTeX(Task):
     def stable(self, db):
