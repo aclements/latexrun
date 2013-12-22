@@ -502,6 +502,11 @@ class LaTeX(Task):
         # the computation, so it should be included as an input.
         # Though it's generally true that files can be added earlier
         # in search paths and will affect the output without us knowing.
+        #
+        # XXX This is a serious problem for bibtex, since the first
+        # run won't depend on the .bbl file!  But maybe the .aux file
+        # will always cause a re-run, at which point the .bbl will
+        # exist?
         filename = jobname + '.fls'
         try:
             recorder = open(filename)
@@ -910,7 +915,27 @@ class BibTeX(Task):
         return [self.__cmd] + self.__cmd_args + [aux_name]
 
     def get_config(self):
-        return {'args': self.__get_args()}
+        auxdata = {}
+        extra = self._get_result_extra()
+        if extra is not None:
+            # We don't consider the .aux files regular inputs.
+            # Instead, we extract just the bit that BibTeX cares about
+            # and depend on that.  See get_aux_command_and_process in
+            # bibtex.web.
+            for auxname in extra['auxnames']:
+                debug('hashing filtered aux file {}', auxname)
+                try:
+                    with open(auxname, 'rb') as aux:
+                        h = hashlib.sha256()
+                        for line in aux:
+                            if line.startswith((b'\\citation{', b'\\bibdata{',
+                                                b'\\bibstyle{', b'\\@input{')):
+                                h.update(line)
+                        auxdata[auxname] = h.hexdigest()
+                except FileNotFoundError:
+                    auxdata[auxname] = None
+
+        return {'args': self.__get_args(), 'auxdata': auxdata}
 
     def _execute(self):
         # Run bibtex
@@ -927,41 +952,45 @@ class BibTeX(Task):
         except OSError as e:
             raise TaskError('failed to execute bibtex task: ' + str(e)) from e
 
-        inputs, auxname = self.__parse_inputs(stdout.decode())
-        outputs = [auxname[:-4] + '.bbl', auxname[:-4] + '.blg']
+        inputs, auxnames = self.__parse_inputs(stdout.decode())
+        outbase = auxnames[0][:-4]
+        outputs = [outbase + '.bbl', outbase + '.blg']
         env_vars = ['TEXMFOUTPUT', 'BSTINPUTS', 'BIBINPUTS', 'PATH']
         return RunResult(inputs, outputs, env_vars,
-                         {'auxname': auxname, 'status': status})
+                         {'auxnames': auxnames, 'outbase': outbase,
+                          'status': status})
 
     def __parse_inputs(self, log):
         # BibTeX conveniently logs every file that it opens, and its
         # log is actually sensible (see calls to a_open_in in
         # bibtex.web.)  The only trick is that these file names are
         # pre-kpathsea lookup.
+        #
+        # Because BibTeX actually depends on very little in the .aux
+        # file (and it's likely other things will change in the .aux
+        # file), we don't consider .aux files regular input files, but
+        # instead hash just the lines that matter to BibTeX in
+        # get_config.
         kpathsea = Kpathsea('bibtex')
         inputs = []
-        auxname = None
+        auxnames = []
         for line in log.splitlines():
-            m = re.match('(?:(The top-level auxiliary file:)'
-                         '|(A level-[0-9]+ auxiliary file:)'
-                         '|(The style file:)'
-                         '|(Database file #[0-9]+:)) (.*)', line)
+            m = re.match('(?:The top-level auxiliary file:'
+                         '|A level-[0-9]+ auxiliary file:) (.*)', line)
             if m:
-                filename = m.group(5)
+                auxnames.append(m.group(1))
+                continue
+            m = re.match('(?:(The style file:)|(Database file #[0-9]+:)) (.*)',
+                         line)
+            if m:
+                filename = m.group(3)
                 if m.group(1):
-                    auxname = filename
-                elif m.group(3):
                     filename = kpathsea.find_file(filename, 'bst')
-                elif m.group(4):
+                elif m.group(2):
                     filename = kpathsea.find_file(filename, 'bib')
                 inputs.append(filename)
 
-        # XXX BibTeX doesn't depend on the *whole* .aux file.  In
-        # fact, we can extract exactly what it depends on.  Maybe we
-        # shouldn't record the .aux as an input, but instead record
-        # the important parts in our task configuration?  See
-        # get_aux_command_and_process.
-        return inputs, auxname
+        return inputs, auxnames
 
     def report(self):
         extra = self._get_result_extra()
@@ -969,7 +998,7 @@ class BibTeX(Task):
             return 0
 
         # XXX Parse and pretty-print the log
-        print(open(extra['auxname'][:-4] + '.blg', 'r').read(), file=sys.stderr)
+        print(open(extra['outbase'] + '.blg', 'r').read(), file=sys.stderr)
 
         # Return BibTeX's exit status
         return extra['status']
