@@ -373,7 +373,7 @@ class Task:
         """Abstract: Execute this task.
 
         Subclasses should implement this method to execute this task.
-        This method must return a TaskResult giving the inputs that
+        This method must return a RunResult giving the inputs that
         were used by the task and the outputs it produced.
         """
         raise NotImplementedError('Task._execute is abstract')
@@ -394,8 +394,16 @@ class Task:
         """
         return 0
 
-class TaskResult(collections.namedtuple(
-        'TaskResult', 'input_filenames output_filenames env_vars extra')):
+class RunResult(collections.namedtuple(
+        'RunResult', 'input_filenames output_filenames env_vars extra')):
+    """The result of a single task execution.
+
+    This captures the execution's input file names and environment
+    variables, and output file names, as well as any additional
+    task-specific results that need to be persisted between runs (for
+    example, to enable reporting of a task's results).
+    """
+
     pass
 
 ##################################################################
@@ -442,8 +450,8 @@ class LaTeX(Task):
         inputs, outputs = self.__parse_recorder(jobname)
         env_vars = ['TEXMFOUTPUT', 'TEXINPUTS', 'TEXFORMATS', 'TEXPOOL',
                     'TFMFONTS', 'PATH']
-        return TaskResult(inputs, outputs, env_vars,
-                          {'jobname': jobname, 'status': status})
+        return RunResult(inputs, outputs, env_vars,
+                         {'jobname': jobname, 'status': status})
 
     def __feed_terminal(self, stdout):
         buf = []
