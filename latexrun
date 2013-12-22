@@ -75,9 +75,9 @@ def main():
     if not args.file:
         return
     try:
-        tasks = [LaTeX(db, args.file, args.latex_cmd, args.latex_args),
-#                 BibTeX(db, XXX)
-        ]
+        task_latex = LaTeX(db, args.file, args.latex_cmd, args.latex_args)
+        task_bibtex = BibTeX(db, task_latex, args.bibtex_cmd, args.bibtex_args)
+        tasks = [task_latex, task_bibtex]
         stable = run_tasks(tasks, args.max_iterations)
 
         # Print final task output and gather exit status
@@ -435,7 +435,7 @@ class LaTeX(Task):
     def _execute(self):
         # Run latex
         args = self.__get_args()
-        debug('running', args)
+        debug('running {}', args)
         try:
             p = subprocess.Popen(args,
                                  stdin=subprocess.DEVNULL,
@@ -468,12 +468,14 @@ class LaTeX(Task):
             if file_stack:
                 # XXX Generalize progress reporting
                 # XXX Deduplicate messages
-                sys.stderr.write('\r\x1b[K\x1b[?7l' + '[latex] ' +
-                                 file_stack[-1] +
-                                 '\x1b[?7h')
-                sys.stderr.flush()
-        sys.stderr.write('\r\x1b[K')
-        sys.stderr.flush()
+                if not debug.enabled:
+                    sys.stderr.write('\r\x1b[K\x1b[?7l' + '[latex] ' +
+                                     file_stack[-1] +
+                                     '\x1b[?7h')
+                    sys.stderr.flush()
+        if not debug.enabled:
+            sys.stderr.write('\r\x1b[K')
+            sys.stderr.flush()
         return b''.join(buf)
 
     def __parse_jobname(self, stdout):
@@ -534,6 +536,15 @@ class LaTeX(Task):
 
         # Return LaTeX's exit status
         return extra['status']
+
+    def get_tex_filename(self):
+        return self.__tex_filename
+
+    def get_jobname(self):
+        extra = self._get_result_extra()
+        if extra is None:
+            return None
+        return extra['jobname']
 
 class LaTeXFilter:
     def __init__(self):
@@ -872,25 +883,96 @@ class LaTeXFilter:
 #
 
 class BibTeX(Task):
-    def stable(self, db):
-        # XXX First check if bibtex even has its input files
+    def __init__(self, db, latex_task, cmd, cmd_args):
+        super().__init__(db, 'bibtex::' +
+                         os.path.relpath(os.path.realpath(
+                             latex_task.get_tex_filename())))
+        self.__latex_task = latex_task
+        self.__cmd = cmd
+        self.__cmd_args = cmd_args
 
-        # XXX If bibtex's inputs aren't ready, then bibtex will simply
-        # fail without affecting system state, so this task is
-        # trivially stable.
-
-        # XXX We don't know where the .aux file is until we've run
-        # LaTeX.
-        if not XXX_have_inputs:
+    def stable(self):
+        # First, check if bibtex even has its input files.
+        jobname = self.__latex_task.get_jobname()
+        if jobname is None:
+            # We don't know where the .aux file is until latex has run
             return True
-        return super().stable(db)
+        if not os.path.exists(jobname + '.aux'):
+            # Input isn't ready, so bibtex will simply fail without
+            # affecting system state.  Hence, this task is trivially
+            # stable.
+            return True
+
+        return super().stable()
+
+    def __get_args(self):
+        aux_name = self.__latex_task.get_jobname() + '.aux'
+        return [self.__cmd] + self.__cmd_args + [aux_name]
+
+    def get_config(self):
+        return {'args': self.__get_args()}
 
     def _execute(self):
+        # Run bibtex
+        args = self.__get_args()
+        debug('running {}', args)
+        try:
+            p = subprocess.Popen(args,
+                                 stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT)
+            # XXX Progress report
+            (stdout, _) = p.communicate()
+            status = p.returncode
+        except OSError as e:
+            raise TaskError('failed to execute bibtex task: ' + str(e)) from e
+
+        inputs, auxname = self.__parse_inputs(stdout.decode())
+        outputs = [auxname[:-4] + '.bbl', auxname[:-4] + '.blg']
+        env_vars = ['TEXMFOUTPUT', 'BSTINPUTS', 'BIBINPUTS', 'PATH']
+        return RunResult(inputs, outputs, env_vars,
+                         {'auxname': auxname, 'status': status})
+
+    def __parse_inputs(self, log):
+        # BibTeX conveniently logs every file that it opens, and its
+        # log is actually sensible (see calls to a_open_in in
+        # bibtex.web.)  The only trick is that these file names are
+        # pre-kpathsea lookup.
+        kpathsea = Kpathsea('bibtex')
+        inputs = []
+        auxname = None
+        for line in log.splitlines():
+            m = re.match('(?:(The top-level auxiliary file:)'
+                         '|(A level-[0-9]+ auxiliary file:)'
+                         '|(The style file:)'
+                         '|(Database file #[0-9]+:)) (.*)', line)
+            if m:
+                filename = m.group(5)
+                if m.group(1):
+                    auxname = filename
+                elif m.group(3):
+                    filename = kpathsea.find_file(filename, 'bst')
+                elif m.group(4):
+                    filename = kpathsea.find_file(filename, 'bib')
+                inputs.append(filename)
+
         # XXX BibTeX doesn't depend on the *whole* .aux file.  In
         # fact, we can extract exactly what it depends on.  Maybe we
         # shouldn't record the .aux as an input, but instead record
-        # the important parts in our task configuration?
-        pass
+        # the important parts in our task configuration?  See
+        # get_aux_command_and_process.
+        return inputs, auxname
+
+    def report(self):
+        extra = self._get_result_extra()
+        if extra is None:
+            return 0
+
+        # XXX Parse and pretty-print the log
+        print(open(extra['auxname'][:-4] + '.blg', 'r').read(), file=sys.stderr)
+
+        # Return BibTeX's exit status
+        return extra['status']
 
 class Kpathsea:
     def __init__(self, program_name):
