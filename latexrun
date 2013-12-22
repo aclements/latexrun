@@ -136,7 +136,7 @@ class DB:
         os.rename(tmp_filename, self.__filename)
 
     def get_summary(self, task_id):
-        """Return the recorded summary for the given task."""
+        """Return the recorded summary for the given task or None."""
         return self.__val.get('tasks', {}).get(task_id)
 
     def set_summary(self, task_id, summary):
@@ -378,19 +378,19 @@ class Task:
         """
         raise NotImplementedError('Task._execute is abstract')
 
-    def report(self):
-        """Report the task's results to stderr and return exit status."""
+    def _get_result_extra(self):
+        """Return the 'extra' result from the previous run, or None."""
         summary = self.__db.get_summary(self.__task_id)
         if summary is None:
-            return 0
-        return self._report(summary['extra'])
+            return None
+        return summary['extra']
 
-    def _report(self, extra):
-        """Abstract: Task-specific implementation of report.
+    def report(self):
+        """Report the task's results to stderr and return exit status.
 
-        If this task has run in the past (including in previous
-        invocations of latexrun), this will be called with the value
-        of TaskResult.extra returned by the last invocation of execute.
+        This may be called when the task has never executed.
+        Subclasses should override this.  The default implementation
+        reports nothing and returns 0.
         """
         return 0
 
@@ -404,6 +404,8 @@ class TaskResult(collections.namedtuple(
 
 class LaTeX(Task):
     def __init__(self, db, tex_filename, cmd, cmd_args):
+        # XXX Is realpath the right thing to do here?  Presumably, tex
+        # will treat a file and a symlink to the file differently.
         super().__init__(db, 'latex::' +
                          os.path.relpath(os.path.realpath(tex_filename)))
         self.__tex_filename = tex_filename
@@ -436,7 +438,7 @@ class LaTeX(Task):
         except OSError as e:
             raise TaskError('failed to execute latex task: ' + str(e)) from e
 
-        jobname = self.__get_jobname(stdout)
+        jobname = self.__parse_jobname(stdout)
         inputs, outputs = self.__parse_recorder(jobname)
         env_vars = ['TEXMFOUTPUT', 'TEXINPUTS', 'TEXFORMATS', 'TEXPOOL',
                     'TFMFONTS', 'PATH']
@@ -466,7 +468,7 @@ class LaTeX(Task):
         sys.stderr.flush()
         return b''.join(buf)
 
-    def __get_jobname(self, stdout):
+    def __parse_jobname(self, stdout):
         """Extract the job name from latex's output.
 
         We get this from latex because it depends on complicated file
@@ -512,7 +514,11 @@ class LaTeX(Task):
         outputs.add(filename)
         return inputs, outputs
 
-    def _report(self, extra):
+    def report(self):
+        extra = self._get_result_extra()
+        if extra is None:
+            return 0
+
         # Parse the log
         logfile = open(extra['jobname'] + '.log', 'rb')
         for msg in LaTeXFilter().feed(logfile.read(), True).get_messages():
