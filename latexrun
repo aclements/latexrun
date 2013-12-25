@@ -406,6 +406,36 @@ class RunResult(collections.namedtuple(
 
     pass
 
+class Progress:
+    def __init__(self, prefix):
+        self.__prefix = prefix
+        self.enabled = os.isatty(sys.stderr.fileno()) and not debug.enabled
+
+    def __enter__(self):
+        self.last = ''
+        self.update('')
+        return self
+
+    def __exit__(self, typ, value, traceback):
+        if self.enabled:
+            sys.stderr.write('\r\x1b[K')
+            sys.stderr.flush()
+
+    def update(self, msg):
+        if not self.enabled:
+            return
+        # Beginning of line, clear line, disable wrap
+        out = '\r\x1b[K\x1b[?7l'
+        out += '[' + self.__prefix + ']'
+        if msg:
+            out += ' ' + msg
+        # Enable wrap
+        out += '\x1b[?7h'
+        if out != self.last:
+            sys.stderr.write(out)
+            sys.stderr.flush()
+            self.last = out
+
 ##################################################################
 # LaTeX task
 #
@@ -454,29 +484,24 @@ class LaTeX(Task):
                          {'jobname': jobname, 'status': status})
 
     def __feed_terminal(self, stdout):
-        buf = []
-        filt = LaTeXFilter()
-        while True:
-            # Use os.read to read only what's available on the pipe,
-            # without waiting to fill a buffer
-            data = os.read(stdout.fileno(), 4096)
-            if not data:
-                break
-            buf.append(data)
-            filt.feed(data)
-            file_stack = filt.get_file_stack()
-            if file_stack:
-                # XXX Generalize progress reporting
-                # XXX Deduplicate messages
-                if not debug.enabled:
-                    sys.stderr.write('\r\x1b[K\x1b[?7l' + '[latex] ' +
-                                     file_stack[-1] +
-                                     '\x1b[?7h')
-                    sys.stderr.flush()
-        if not debug.enabled:
-            sys.stderr.write('\r\x1b[K')
-            sys.stderr.flush()
-        return b''.join(buf)
+        # XXX Include pass number
+        with Progress('latex') as progress:
+            buf = []
+            filt = LaTeXFilter()
+            while True:
+                # Use os.read to read only what's available on the pipe,
+                # without waiting to fill a buffer
+                data = os.read(stdout.fileno(), 4096)
+                if not data:
+                    break
+                buf.append(data)
+                filt.feed(data)
+                file_stack = filt.get_file_stack()
+                if file_stack:
+                    progress.update(file_stack[-1])
+                else:
+                    progress.update('')
+            return b''.join(buf)
 
     def __parse_jobname(self, stdout):
         """Extract the job name from latex's output.
