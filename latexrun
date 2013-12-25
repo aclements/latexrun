@@ -450,6 +450,8 @@ class LaTeX(Task):
         self.__cmd = cmd
         self.__cmd_args = cmd_args
 
+        self.__pass = 0
+
     def __get_args(self):
         # If filename starts with a character the tex command-line
         # treats specially, then tweak it so it doesn't.
@@ -464,6 +466,7 @@ class LaTeX(Task):
 
     def _execute(self):
         # Run latex
+        self.__pass += 1
         args = self.__get_args()
         debug('running {}', args)
         try:
@@ -484,8 +487,10 @@ class LaTeX(Task):
                          {'jobname': jobname, 'status': status})
 
     def __feed_terminal(self, stdout):
-        # XXX Include pass number
-        with Progress('latex') as progress:
+        prefix = 'latex'
+        if self.__pass > 1:
+            prefix += ' ({})'.format(self.__pass)
+        with Progress(prefix) as progress:
             buf = []
             filt = LaTeXFilter()
             while True:
