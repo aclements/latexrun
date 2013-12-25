@@ -976,9 +976,8 @@ class BibTeX(Task):
                                  stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT)
-            # XXX Progress report
-            (stdout, _) = p.communicate()
-            status = p.returncode
+            stdout = self.__feed_terminal(p.stdout)
+            status = p.wait()
         except OSError as e:
             raise TaskError('failed to execute bibtex task: ' + str(e)) from e
 
@@ -989,6 +988,21 @@ class BibTeX(Task):
         return RunResult(inputs, outputs, env_vars,
                          {'auxnames': auxnames, 'outbase': outbase,
                           'status': status})
+
+    def __feed_terminal(self, stdout):
+        with Progress('bibtex') as progress:
+            buf, linebuf = [], b''
+            while True:
+                data = os.read(stdout.fileno(), 4096)
+                if not data:
+                    break
+                buf.append(data)
+                linebuf += data
+                while b'\n' in linebuf:
+                    line, _, linebuf = linebuf.partition(b'\n')
+                    if line.startswith(b'Database file'):
+                        progress.update(line.split(b': ', 1)[1].decode())
+        return b''.join(buf)
 
     def __parse_inputs(self, log):
         # BibTeX conveniently logs every file that it opens, and its
