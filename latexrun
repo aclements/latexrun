@@ -215,6 +215,24 @@ class HashCache:
                 del self.__cache[key]
 hash_cache = HashCache()
 
+class Message(collections.namedtuple(
+        'Message', 'typ filename lineno msg')):
+    def __str__(self):
+        if self.filename:
+            if self.filename.startswith('./'):
+                out = self.filename[2:]
+            else:
+                out = self.filename
+        else:
+            out = '<no file>'
+        if self.lineno is not None:
+            out += ':' + str(self.lineno)
+        if self.typ != 'warning':
+            out += ': ' + self.typ
+        out += ': ' + self.msg
+
+        return out
+
 ##################################################################
 # Task framework
 #
@@ -615,7 +633,7 @@ class LaTeXFilter:
         return self
 
     def get_messages(self):
-        """Return a list of warning and error strings."""
+        """Return a list of warning and error Messages."""
         return self.__messages
 
     def get_file_stack(self):
@@ -637,16 +655,8 @@ class LaTeXFilter:
         self.__restart_messages_len = len(self.__messages)
 
     def __message(self, typ, lineno, msg):
-        out = self.__file_stack[-1] if self.__file_stack else '<no file>'
-        if out.startswith('./'):
-            out = out[2:]
-        if lineno is not None:
-            out += ':' + str(lineno)
-        if typ != 'warning':
-            out += ': ' + typ
-        out += ': ' + msg
-
-        self.__messages.append(out)
+        filename = self.__file_stack[-1] if self.__file_stack else None
+        self.__messages.append(Message(typ, filename, lineno, msg))
 
     def __ensure_line(self):
         """Update lstart and lend."""
@@ -1041,11 +1051,103 @@ class BibTeX(Task):
         if extra is None:
             return 0
 
-        # XXX Parse and pretty-print the log
-        print(open(extra['outbase'] + '.blg', 'r').read(), file=sys.stderr)
+        # Parse and pretty-print the log
+        log = open(extra['outbase'] + '.blg', 'rb').read()
+        for msg in BibTeXFilter(log).get_messages():
+            print(msg, file=sys.stderr)
 
         # Return BibTeX's exit status
         return extra['status']
+
+class BibTeXFilter:
+    def __init__(self, data):
+        self.__messages = []
+
+        prev_line = b''
+        for line in data.splitlines():
+            msg = self.__process_line(prev_line, line)
+            if msg is not None:
+                self.__messages.append(Message(*msg))
+            prev_line = line
+
+    def get_messages(self):
+        """Return a list of warning and error Messages."""
+        return self.__messages
+
+    def __process_line(self, prev_line, line):
+        m = None
+        def match(regexp):
+            nonlocal m
+            m = re.match(regexp, line)
+            return m
+
+        # BibTeX has many error paths, but luckily the set is closed,
+        # so we can find all of them.  This first case is the
+        # workhorse format.
+        #
+        # AUX errors: aux_err/aux_err_return/aux_err_print
+        #
+        # BST errors: bst_ln_num_print/bst_err/
+        # bst_err_print_and_look_for_blank_line_return/
+        # bst_warn_print/bst_warn/
+        # skip_token/skip_token_print/
+        # bst_ext_warn/bst_ext_warn_print/
+        # bst_ex_warn/bst_ex_warn_print/
+        # bst_mild_ex_warn/bst_mild_ex_warn_print/
+        # bst_string_size_exceeded
+        #
+        # BIB errors: bib_ln_num_print/
+        # bib_err_print/bib_err/
+        # bib_warn_print/bib_warn/
+        # bib_one_of_two_expected_err/macro_name_warning/
+        if match(b'(.*)---?line ([0-9]+) of file (.*)'):
+            # Sometimes the real error is printed on the previous line
+            typ, msg = self.__canonicalize((m.group(1) or prev_line).decode())
+            return (typ, m.group(3).decode(), int(m.group(2)), msg)
+
+        # overflow/print_overflow
+        if match(b'Sorry---you\'ve exceeded BibTeX\'s (.*)'):
+            return ('error', None, None,
+                    'capacity exceeded: ' + m.group(1).decode())
+        # confusion/print_confusion
+        if match(b'(.*)---this can\'t happen$'):
+            return ('error', None, None,
+                    'internal error: ' + m.group(1).decode())
+        # aux_end_err
+        if match(b'I found (no .*)---while reading file (.*)'):
+            return ('error', m.group(2).decode(), None,
+                    m.group(1).decode())
+        # bad_cross_reference_print/
+        # nonexistent_cross_reference_error/
+        # @<Complain about a nested cross reference@>
+        #
+        # This is split across two lines.  Match the second.
+        if match(b'^refers to entry "'):
+            typ, msg = self.__canonicalize(
+                prev_line.decode() + ' ' + line.decode())
+            msg = re.sub('^a (bad cross reference)', '\\1', msg)
+            return (typ, None, None, msg)
+        # print_missing_entry
+        if match(b'Warning--I didn\'t find a database entry for (".*")'):
+            return ('warning', None, None,
+                    'no database entry for ' + m.group(1).decode())
+        # x_warning
+        if match(b'Warning--(.*)'):
+            return ('warning', None, None, m.group(1).decode())
+        # @<Clean up and leave@>
+        if match(b'Aborted at line ([0-9]+) of file (.*)'):
+            return ('info', m.group(2).decode(), int(m.group(1)),
+                    'aborted')
+
+    def __canonicalize(self, msg):
+        if msg.startswith('Warning'):
+            msg = re.sub('^Warning-*', '', msg)
+            typ = 'warning'
+        else:
+            typ = 'error'
+        msg = re.sub('^I(\'m| was)? ', '', msg)
+        msg = msg[:1].lower() + msg[1:]
+        return typ, msg
 
 class Kpathsea:
     def __init__(self, program_name):
