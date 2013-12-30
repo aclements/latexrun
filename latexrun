@@ -1056,8 +1056,12 @@ class BibTeX(Task):
         for msg in BibTeXFilter(log).get_messages():
             print(msg, file=sys.stderr)
 
-        # Return BibTeX's exit status
-        return extra['status']
+        # BibTeX exits with 1 if there are warnings, 2 if there are
+        # errors, and 3 if there are fatal errors (sysdep.h).
+        # Translate to a normal UNIX exit status.
+        if extra['status'] >= 2:
+            return 1
+        return 0
 
 class BibTeXFilter:
     def __init__(self, data):
