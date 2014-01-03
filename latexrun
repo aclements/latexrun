@@ -297,15 +297,18 @@ class Task:
             return True
 
     def run(self):
-        # Before we run the task, hash any files that were *both* an
-        # input and an output during the last run.  It's likely that
-        # they'll be overwritten again by this run, and if they are,
-        # it'll be too late get input hashes for these files.
+        # Before we run the task, hash any files that were output
+        # files in the last run.  These may be input by this run and
+        # then clobbered, at which point it will be too late to get an
+        # input hash.  Ideally we would only hash files that were
+        # *both* input and output files, but latex doesn't tell us
+        # about input files that didn't exist, so if we start from a
+        # clean slate, we often require an extra run because we don't
+        # know a file is input/output until after the second run.
         last_summary = self.__db.get_summary(self.__task_id)
         prehashes = {}
         if last_summary is not None:
-            for io_filename in set(last_summary['input_files']).\
-                intersection(last_summary['output_files']):
+            for io_filename in last_summary['output_files']:
                 self.__debug('pre-hashing {}', io_filename)
                 prehashes[io_filename] = hash_cache.get(io_filename)
 
