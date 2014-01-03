@@ -947,6 +947,12 @@ class BibTeX(Task):
             # affecting system state.  Hence, this task is trivially
             # stable.
             return True
+        aux_data = open(jobname + '.aux').read()
+        if not re.search(r'^\\bibstyle\{', aux_data, flags=re.M) or \
+           not re.search(r'^\\bibdata\{',  aux_data, flags=re.M):
+            # The tex file doesn't refer to any bibliographic data, so
+            # don't run bibtex.
+            return True
 
         return super().stable()
 
