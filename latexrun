@@ -18,7 +18,11 @@ debug.enabled = False
 def main():
     # Parse command-line
     arg_parser = argparse.ArgumentParser(
-        description='Run LaTeX/BibTeX the right number of times')
+        description='''A 21st century LaTeX wrapper,
+        %(prog)s runs latex (and bibtex) the right number of times so you
+        don't have to,
+        strips the log spew to make errors readable,
+        and plays well with standard build tools.''')
     arg_parser.add_argument(
         '--latex-cmd', metavar='CMD', default='pdflatex',
         help='Latex command (default: %(default)s)')
@@ -43,7 +47,7 @@ def main():
     actions.add_argument(
         '--clean', action='store_true', help='Delete output files')
     actions.add_argument(
-        'file', nargs='?', help='Compile TeX file')
+        'file', nargs='?', help='.tex file to compile')
     args = arg_parser.parse_args()
     if not any([args.clean, args.file]):
         arg_parser.error('at least one action is required')
