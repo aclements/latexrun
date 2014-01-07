@@ -465,12 +465,16 @@ class Progress:
 # LaTeX task
 #
 
+def normalize_input_path(path):
+    # Resolve the directory of the input path, but leave the file
+    # component alone because it affects TeX's behavior.
+    head, tail = os.path.split(path)
+    npath = os.path.join(os.path.realpath(head), tail)
+    return os.path.relpath(path)
+
 class LaTeX(Task):
     def __init__(self, db, tex_filename, cmd, cmd_args):
-        # XXX Is realpath the right thing to do here?  Presumably, tex
-        # will treat a file and a symlink to the file differently.
-        super().__init__(db, 'latex::' +
-                         os.path.relpath(os.path.realpath(tex_filename)))
+        super().__init__(db, 'latex::' + normalize_input_path(tex_filename))
         self.__tex_filename = tex_filename
         self.__cmd = cmd
         self.__cmd_args = cmd_args
@@ -936,9 +940,8 @@ class LaTeXFilter:
 
 class BibTeX(Task):
     def __init__(self, db, latex_task, cmd, cmd_args):
-        super().__init__(db, 'bibtex::' +
-                         os.path.relpath(os.path.realpath(
-                             latex_task.get_tex_filename())))
+        super().__init__(db, 'bibtex::' + normalize_input_path(
+            latex_task.get_tex_filename()))
         self.__latex_task = latex_task
         self.__cmd = cmd
         self.__cmd_args = cmd_args
