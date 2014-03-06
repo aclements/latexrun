@@ -1103,7 +1103,8 @@ class BibTeX(Task):
 
         # Parse and pretty-print the log
         log = open(extra['outbase'] + '.blg', 'rb').read()
-        for msg in BibTeXFilter(log).get_messages():
+        inputs, auxnames = self.__parse_inputs(log.decode())
+        for msg in BibTeXFilter(log, inputs).get_messages():
             print(msg, file=sys.stderr)
 
         # BibTeX exits with 1 if there are warnings, 2 if there are
@@ -1114,7 +1115,10 @@ class BibTeX(Task):
         return 0
 
 class BibTeXFilter:
-    def __init__(self, data):
+    def __init__(self, data, inputs):
+        self.__inputs = inputs
+        self.__key_locs = None
+
         self.__messages = []
 
         prev_line = b''
@@ -1180,14 +1184,25 @@ class BibTeXFilter:
             typ, msg = self.__canonicalize(
                 prev_line.decode() + ' ' + line.decode())
             msg = re.sub('^a (bad cross reference)', '\\1', msg)
-            return (typ, None, None, msg)
+            # Try to give this key a location
+            filename = lineno = None
+            m2 = re.search(br'--entry "[^"]"', prev_line)
+            if m2:
+                filename, lineno = self.__find_key(m2.group(1))
+            return (typ, filename, lineno, msg)
         # print_missing_entry
         if match(b'Warning--I didn\'t find a database entry for (".*")'):
             return ('warning', None, None,
                     'no database entry for ' + m.group(1).decode())
         # x_warning
         if match(b'Warning--(.*)'):
-            return ('warning', None, None, m.group(1).decode())
+            # Most formats give warnings about "something in <key>".
+            # Try to match it up.
+            filename = lineno = None
+            m2 = re.search(br' in ([^, \t\n]+)\b', line)
+            if m2:
+                filename, lineno = self.__find_key(m2.group(1))
+            return ('warning', filename, lineno, m.group(1).decode())
         # @<Clean up and leave@>
         if match(b'Aborted at line ([0-9]+) of file (.*)'):
             return ('info', m.group(2).decode(), int(m.group(1)),
@@ -1202,6 +1217,69 @@ class BibTeXFilter:
         msg = re.sub('^I(\'m| was)? ', '', msg)
         msg = msg[:1].lower() + msg[1:]
         return typ, msg
+
+    def __find_key(self, key):
+        if self.__key_locs is None:
+            p = BibTeXKeyParser()
+            self.__key_locs = {}
+            for filename in self.__inputs:
+                data = open(filename, 'rb').read()
+                for pkey, lineno in p.parse(data):
+                    self.__key_locs.setdefault(pkey, (filename, lineno))
+        return self.__key_locs.get(key, (None, None))
+
+class BibTeXKeyParser:
+    """Just enough of a BibTeX parser to find keys."""
+
+    def parse(self, data):
+        IDENT_RE = b'(?![0-9])([^\x00-\x20\x80-\xff \t"#%\'(),={}]+)'
+        self.__pos, self.__data = 0, data
+        # Find the next entry
+        while self.__consume(b'[^@]*@[ \t\n]*'):
+            # What type of entry?
+            if not self.__consume(IDENT_RE + b'[ \t\n]*'):
+                continue
+            typ = self.__m.group(1)
+            if typ == b'comment':
+                continue
+            start = self.__pos
+            if not self.__consume(b'([{(])[ \t\n]*'):
+                continue
+            closing, key_re = {b'{' : (b'}', b'([^, \t\n}]*)'),
+                               b'(' : (b')', b'([^, \t\n]*)')}[self.__m.group(1)]
+            if typ not in (b'preamble', b'string'):
+                # Regular entry; get key
+                if self.__consume(key_re):
+                    yield self.__m.group(1), self.__lineno()
+            # Consume body of entry
+            self.__pos = start
+            self.__balanced(closing)
+
+    def __consume(self, regexp):
+        self.__m = re.compile(regexp).match(self.__data, self.__pos)
+        if self.__m:
+            self.__pos = self.__m.end()
+        return self.__m
+
+    def __lineno(self):
+        return self.__data.count(b'\n', 0, self.__pos) + 1
+
+    def __balanced(self, closing):
+        self.__pos += 1
+        level = 0
+        skip = re.compile(b'[{}' + closing + b']')
+        while True:
+            m = skip.search(self.__data, self.__pos)
+            if not m:
+                break
+            self.__pos = m.end()
+            ch = m.group(0)
+            if level == 0 and ch == closing:
+                break
+            elif ch == b'{':
+                level += 1
+            elif ch == b'}':
+                level -= 1
 
 class Kpathsea:
     def __init__(self, program_name):
