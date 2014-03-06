@@ -31,6 +31,10 @@ def main():
         help='Additional command-line arguments for latex.'
         ' This will be parsed and split using POSIX shell rules.')
     arg_parser.add_argument(
+        '-W', action='append', dest='warns', default=[],
+        choices=['underfull', 'font'],
+        help='Enable additional warnings.')
+    arg_parser.add_argument(
         '--bibtex-cmd', metavar='CMD', default='bibtex',
         help='Bibtex command (default: %(default)s)')
     arg_parser.add_argument(
@@ -79,8 +83,10 @@ def main():
     if not args.file:
         return
     try:
-        task_latex = LaTeX(db, args.file, args.latex_cmd, args.latex_args)
-        task_bibtex = BibTeX(db, task_latex, args.bibtex_cmd, args.bibtex_args)
+        task_latex = LaTeX(db, args.file, args.latex_cmd, args.latex_args,
+                           args.warns)
+        task_bibtex = BibTeX(db, task_latex, args.bibtex_cmd, args.bibtex_args,
+                             args.warns)
         tasks = [task_latex, task_bibtex]
         stable = run_tasks(tasks, args.max_iterations)
 
@@ -473,11 +479,12 @@ def normalize_input_path(path):
     return os.path.relpath(path)
 
 class LaTeX(Task):
-    def __init__(self, db, tex_filename, cmd, cmd_args):
+    def __init__(self, db, tex_filename, cmd, cmd_args, warns):
         super().__init__(db, 'latex::' + normalize_input_path(tex_filename))
         self.__tex_filename = tex_filename
         self.__cmd = cmd
         self.__cmd_args = cmd_args
+        self.__warns = warns
 
         self.__pass = 0
 
@@ -598,7 +605,8 @@ class LaTeX(Task):
 
         # Parse the log
         logfile = open(extra['jobname'] + '.log', 'rb')
-        for msg in LaTeXFilter().feed(logfile.read(), True).get_messages():
+        for msg in LaTeXFilter(self.__warns).feed(
+                logfile.read(), True).get_messages():
             print(msg, file=sys.stderr)
 
         # Return LaTeX's exit status
@@ -614,12 +622,16 @@ class LaTeX(Task):
         return extra['jobname']
 
 class LaTeXFilter:
-    def __init__(self):
+    def __init__(self, warns=[]):
         self.__data = b''
         self.__restart_pos = 0
         self.__restart_file_stack = []
         self.__restart_messages_len = 0
         self.__messages = []
+        self.__first_file = None
+
+        self.__suppress = {cls: 0 for cls in ['underfull', 'font']
+                           if cls not in warns}
 
     def feed(self, data, eof=False):
         """Feed bytes of LaTeX log data to the parser.
@@ -640,6 +652,15 @@ class LaTeXFilter:
         # Parse forward
         while self.__pos < len(self.__data):
             self.__noise()
+
+        # Handle suppressed warnings
+        if eof:
+            msgs = ['%d %s warning%s' % (count, cls, "s" if count > 1 else "")
+                    for cls, count in self.__suppress.items() if count]
+            if msgs:
+                self.__message('warning', None,
+                               'suppressed %s (use -W to show them)' %
+                               ', '.join(msgs), filename=self.__first_file)
 
         if eof and len(self.__file_stack):
             self.__message('warning', None,
@@ -668,8 +689,12 @@ class LaTeXFilter:
         self.__restart_file_stack = self.__file_stack.copy()
         self.__restart_messages_len = len(self.__messages)
 
-    def __message(self, typ, lineno, msg):
-        filename = self.__file_stack[-1] if self.__file_stack else None
+    def __message(self, typ, lineno, msg, cls=None, filename=None):
+        if cls is not None and cls in self.__suppress:
+            self.__suppress[cls] += 1
+            return
+        filename = filename or (self.__file_stack[-1] if self.__file_stack
+                                else None)
         self.__messages.append(Message(typ, filename, lineno, msg))
 
     def __ensure_line(self):
@@ -777,7 +802,11 @@ class LaTeXFilter:
             self.__save_restart_point()
         elif ch == ord('('):
             # XXX Check that the stack doesn't drop to empty and then re-grow
-            self.__file_stack.append(self.__filename())
+            first = self.__first_file is None and self.__col == 1
+            filename = self.__filename()
+            self.__file_stack.append(filename)
+            if first:
+                self.__first_file = filename
         elif ch == ord(')'):
             if len(self.__file_stack):
                 self.__file_stack.pop()
@@ -904,13 +933,14 @@ class LaTeXFilter:
             if b'hbox' in msg and self.__lookingat(b'\\'):
                 self.__consume_line(unwrap=True)
         msg = self.__simplify_message(msg)
-        self.__message('warning', lineno, msg.decode())
+        cls = msg.decode().split(None, 1)[0].lower()
+        self.__message('warning', lineno, msg.decode(), cls=cls)
 
     def __generic_warning(self):
         # Warnings produced by LaTeX's \GenericWarning (which is
         # called by \{Package,Class}Warning and \@latex@warning),
         # warnings produced by pdftex_warn, and other random warnings.
-        msg = self.__generic_info()
+        msg, cls = self.__generic_info()
         # Most warnings include an input line emitted by \on@line
         m = re.search(b' on input line ([0-9]+)', msg)
         if m:
@@ -919,7 +949,7 @@ class LaTeXFilter:
         else:
             lineno = None
         msg = self.__simplify_message(msg)
-        self.__message('warning', lineno, msg.decode())
+        self.__message('warning', lineno, msg.decode(), cls=cls)
 
     def __generic_info(self):
         # Messages produced by LaTeX's \Generic{Error,Warning,Info}
@@ -935,19 +965,20 @@ class LaTeXFilter:
             # numbers.
             extra = self.__consume_line(unwrap=True)
             msg += b' ' + extra[len(prefix):].strip()
-        return msg
+        return msg, pkg_name.decode().lower()
 
 ##################################################################
 # BibTeX task
 #
 
 class BibTeX(Task):
-    def __init__(self, db, latex_task, cmd, cmd_args):
+    def __init__(self, db, latex_task, cmd, cmd_args, warns):
         super().__init__(db, 'bibtex::' + normalize_input_path(
             latex_task.get_tex_filename()))
         self.__latex_task = latex_task
         self.__cmd = cmd
         self.__cmd_args = cmd_args
+        self.__warns = warns
 
     def stable(self):
         # First, check if bibtex even has its input files.
