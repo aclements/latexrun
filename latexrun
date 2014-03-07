@@ -31,9 +31,11 @@ def main():
         help='Additional command-line arguments for latex.'
         ' This will be parsed and split using POSIX shell rules.')
     arg_parser.add_argument(
-        '-W', action='append', dest='warns', default=[],
-        choices=['underfull', 'font'],
-        help='Enable additional warnings.')
+        '-W', metavar='(no-)CLASS',
+        action=ArgParserWarnAction, dest='nowarns', default=set(['underfull']),
+        help='Enable/disable warning from CLASS, which can be any package name, '
+        'LaTeX warning class (e.g., font), or bad box type '
+        '(underfull, overfull, loose, tight)')
     arg_parser.add_argument(
         '--bibtex-cmd', metavar='CMD', default='bibtex',
         help='Bibtex command (default: %(default)s)')
@@ -84,9 +86,9 @@ def main():
         return
     try:
         task_latex = LaTeX(db, args.file, args.latex_cmd, args.latex_args,
-                           args.warns)
+                           args.nowarns)
         task_bibtex = BibTeX(db, task_latex, args.bibtex_cmd, args.bibtex_args,
-                             args.warns)
+                             args.nowarns)
         tasks = [task_latex, task_bibtex]
         stable = run_tasks(tasks, args.max_iterations)
 
@@ -104,15 +106,21 @@ def main():
         status = 1
     sys.exit(status)
 
-class TaskError(Exception):
-    pass
-
 def arg_parser_shlex(string):
     """Argument parser for shell token lists."""
     try:
         return shlex.split(string)
     except ValueError as e:
         raise argparse.ArgumentTypeError(str(e)) from None
+
+class ArgParserWarnAction(argparse.Action):
+    def __call__(self, parser, namespace, value, option_string=None):
+        nowarn = getattr(namespace, self.dest)
+        if value.startswith('no-'):
+            nowarn.add(value[3:])
+        else:
+            nowarn.discard(value)
+        setattr(namespace, self.dest, nowarn)
 
 class DB:
     """A latexrun control database."""
@@ -267,6 +275,9 @@ def run_tasks(tasks, max_iterations):
                 nstable = 0
     debug('fixed-point not reached')
     return False
+
+class TaskError(Exception):
+    pass
 
 class Task:
     """A deterministic computation whose inputs and outputs can be captured."""
@@ -479,12 +490,12 @@ def normalize_input_path(path):
     return os.path.relpath(path)
 
 class LaTeX(Task):
-    def __init__(self, db, tex_filename, cmd, cmd_args, warns):
+    def __init__(self, db, tex_filename, cmd, cmd_args, nowarns):
         super().__init__(db, 'latex::' + normalize_input_path(tex_filename))
         self.__tex_filename = tex_filename
         self.__cmd = cmd
         self.__cmd_args = cmd_args
-        self.__warns = warns
+        self.__nowarns = nowarns
 
         self.__pass = 0
 
@@ -605,7 +616,7 @@ class LaTeX(Task):
 
         # Parse the log
         logfile = open(extra['jobname'] + '.log', 'rb')
-        for msg in LaTeXFilter(self.__warns).feed(
+        for msg in LaTeXFilter(self.__nowarns).feed(
                 logfile.read(), True).get_messages():
             print(msg, file=sys.stderr)
 
@@ -622,7 +633,7 @@ class LaTeX(Task):
         return extra['jobname']
 
 class LaTeXFilter:
-    def __init__(self, warns=[]):
+    def __init__(self, nowarns=[]):
         self.__data = b''
         self.__restart_pos = 0
         self.__restart_file_stack = []
@@ -630,8 +641,7 @@ class LaTeXFilter:
         self.__messages = []
         self.__first_file = None
 
-        self.__suppress = {cls: 0 for cls in ['underfull', 'font']
-                           if cls not in warns}
+        self.__suppress = {cls: 0 for cls in nowarns}
 
     def feed(self, data, eof=False):
         """Feed bytes of LaTeX log data to the parser.
@@ -972,13 +982,12 @@ class LaTeXFilter:
 #
 
 class BibTeX(Task):
-    def __init__(self, db, latex_task, cmd, cmd_args, warns):
+    def __init__(self, db, latex_task, cmd, cmd_args, nowarns):
         super().__init__(db, 'bibtex::' + normalize_input_path(
             latex_task.get_tex_filename()))
         self.__latex_task = latex_task
         self.__cmd = cmd
         self.__cmd_args = cmd_args
-        self.__warns = warns
 
     def stable(self):
         # First, check if bibtex even has its input files.
