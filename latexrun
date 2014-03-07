@@ -842,7 +842,7 @@ class LaTeXFilter:
         return name
 
     def __simplify_message(self, msg):
-        msg = re.sub(br'^(?:Package |Class )?([^ ]+) (?:Error|Warning): ',
+        msg = re.sub(br'^(?:Package |Class |LaTeX |pdfTeX )?([^ ]+) (?:Error|Warning): ',
                      br'[\1] ', msg, flags=re.I)
         msg = re.sub(br'\.$', b'', msg)
         msg = re.sub(br'has occurred (while \\output is active)', br'\1', msg)
