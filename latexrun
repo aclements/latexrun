@@ -62,14 +62,19 @@ def main():
 
     debug.enabled = args.debug
 
-    # Open control database
+    # Open control database.  We'll also put output files in this
+    # directory.  I would like this to be .latexrun, but, oh wonderful
+    # TeX, openout "protection" bails if there's a dot directory in
+    # the path.
     # XXX Is there a better place to put this?  If I'm cleaning, I
     # don't have a file name, so it can't be relative to that.
-    dbpath = '.latexrun'
+    dbpath = 'latexrun/latexrun.db'
     try:
+        os.makedirs(os.path.dirname(dbpath), exist_ok=True)
         db = DB(dbpath)
     except (ValueError, OSError) as e:
-        print('error opening {}: {}'.format(dbpath, e),
+        print('error opening {}: {}'.format(e.filename if hasattr(e, 'filename')
+                                            else dbpath, e),
               file=sys.stderr)
         sys.exit(1)
 
