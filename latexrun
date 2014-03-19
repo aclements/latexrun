@@ -1080,9 +1080,11 @@ class BibTeX(Task):
         except OSError as e:
             raise TaskError('failed to execute bibtex task: ' + str(e)) from e
 
-        # XXX If bibtex fails catastrophically, both lists will be
-        # empty and the lines below will crash
         inputs, auxnames = self.__parse_inputs(stdout.decode())
+        if not inputs and not auxnames:
+            # BibTeX failed catastrophically.
+            print(stdout.decode(), file=sys.stderr)
+            raise TaskError('failed to execute bibtex task')
         outbase = auxnames[0][:-4]
         outputs = [outbase + '.bbl', outbase + '.blg']
         env_vars = ['TEXMFOUTPUT', 'BSTINPUTS', 'BIBINPUTS', 'PATH']
