@@ -629,11 +629,16 @@ class LaTeX(Task):
             parts = line.rstrip('\n').split(' ', 1)
             if parts[0] == 'PWD':
                 pwd = parts[1]
-            elif parts[0] == 'INPUT':
-                inputs.add(os.path.join(pwd, parts[1]))
-            elif parts[0] == 'OUTPUT':
-                # XXX Full path is bad for clean
-                outputs.add(os.path.join(pwd, parts[1]))
+            elif parts[0] in ('INPUT', 'OUTPUT'):
+                if parts[1].startswith('/'):
+                    path = parts[1]
+                else:
+                    # Try to make "nice" paths, especially for clean
+                    path = os.path.relpath(os.path.join(pwd, parts[1]))
+                if parts[0] == 'INPUT':
+                    inputs.add(path)
+                else:
+                    outputs.add(path)
             else:
                 raise TaskError('syntax error on line {} of {}'
                                 .format(linenum, filename))
