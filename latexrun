@@ -9,6 +9,7 @@ import subprocess
 import re
 import collections
 import hashlib
+import shutil
 
 def debug(string, *args):
     if debug.enabled:
@@ -510,8 +511,12 @@ class LaTeX(Task):
         filename = self.__tex_filename
         if filename.startswith(('-', '&', '\\')):
             filename = './' + filename
+        # XXX Put these at the beginning in case the provided
+        # arguments are malformed.  Might want to do a best-effort
+        # check for incompatible user-provided arguments.
         return [self.__cmd] + self.__cmd_args + \
-            ['-interaction', 'nonstopmode', '-recorder', filename]
+            ['-interaction', 'nonstopmode', '-recorder',
+             '-output-directory', 'latexrun', filename]
 
     def get_config(self):
         return {'args': self.__get_args()}
@@ -531,7 +536,19 @@ class LaTeX(Task):
         except OSError as e:
             raise TaskError('failed to execute latex task: ' + str(e)) from e
 
-        jobname = self.__parse_jobname(stdout)
+        jobname, outname = self.__parse_jobname(stdout)
+
+        # If latex succeeded with output, atomically commit the output
+        # XXX Wrong place; if user deleted committed output and
+        # re-runs, it won't get copied again.  Perhaps this should be
+        # a separate task?
+        if status == 0 and outname:
+            try:
+                shutil.copyfile(outname, outname + '~')
+                os.rename(outname + '~', os.path.basename(outname))
+            except OSError as e:
+                raise TaskError('error committing latex output: {}'.format(e))
+
         inputs, outputs = self.__parse_recorder(jobname)
         env_vars = ['TEXMFOUTPUT', 'TEXINPUTS', 'TEXFORMATS', 'TEXPOOL',
                     'TFMFONTS', 'PATH']
@@ -564,21 +581,29 @@ class LaTeX(Task):
             return b''.join(buf)
 
     def __parse_jobname(self, stdout):
-        """Extract the job name from latex's output.
+        """Extract the job name and output name from latex's output.
 
-        We get this from latex because it depends on complicated file
-        name parsing rules, is affected by arguments like
+        We get these from latex because they depend on complicated
+        file name parsing rules, are affected by arguments like
         -output-directory, and may be just "texput" if things fail
-        really early.
+        really early.  The output name may be None if there were no
+        pages of output.
         """
-        jobname = None
+        jobname = outname = None
         for m in re.finditer(br'^Transcript written on (.*)\.log\.$', stdout,
                              re.MULTILINE):
             jobname = m.group(1).decode()
         if jobname is None:
             print(stdout.decode(), file=sys.stderr)
             raise TaskError('failed to extract job name from latex log')
-        return jobname
+        for m in re.finditer(br'^Output written on (.*\.[^ .]+) \([0-9]+ pages',
+                             stdout, re.MULTILINE):
+            outname = m.group(1).decode()
+        if outname is None and not re.search(br'^No pages of output\.$', stdout,
+                                             re.MULTILINE):
+            print(stdout.decode(), file=sys.stderr)
+            raise TaskError('failed to extract output name from latex log')
+        return jobname, outname
 
     def __parse_recorder(self, jobname):
         """Parse file recorder output."""
@@ -1055,6 +1080,8 @@ class BibTeX(Task):
         except OSError as e:
             raise TaskError('failed to execute bibtex task: ' + str(e)) from e
 
+        # XXX If bibtex fails catastrophically, both lists will be
+        # empty and the lines below will crash
         inputs, auxnames = self.__parse_inputs(stdout.decode())
         outbase = auxnames[0][:-4]
         outputs = [outbase + '.bbl', outbase + '.blg']
