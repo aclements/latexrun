@@ -93,9 +93,10 @@ def main():
     try:
         task_latex = LaTeX(db, args.file, args.latex_cmd, args.latex_args,
                            args.nowarns)
+        task_commit = LaTeXCommit(db, task_latex)
         task_bibtex = BibTeX(db, task_latex, args.bibtex_cmd, args.bibtex_args,
                              args.nowarns)
-        tasks = [task_latex, task_bibtex]
+        tasks = [task_latex, task_commit, task_bibtex]
         stable = run_tasks(tasks, args.max_iterations)
 
         # Print final task output and gather exit status
@@ -284,6 +285,15 @@ def run_tasks(tasks, max_iterations):
 
 class TaskError(Exception):
     pass
+
+# XXX Task inputs have gotten somewhat unwieldy between files,
+# environment variables, config, etc.  It would be better to treat
+# each input as an easily-evaluated function with some arguments.
+# Then this would be uniform and easily extensible.  File inputs would
+# be hash(file).  Environment inputs would be env(var).  Configuration
+# inputs would be nullary functions.  The database would store the
+# results of these "functions" and the task would be considered
+# out-of-date if any of the functions evaluated to a different value.
 
 class Task:
     """A deterministic computation whose inputs and outputs can be captured."""
@@ -513,7 +523,9 @@ class LaTeX(Task):
             filename = './' + filename
         # XXX Put these at the beginning in case the provided
         # arguments are malformed.  Might want to do a best-effort
-        # check for incompatible user-provided arguments.
+        # check for incompatible user-provided arguments (note:
+        # arguments can be given with one or two dashes and those with
+        # values can use an equals or a space).
         return [self.__cmd] + self.__cmd_args + \
             ['-interaction', 'nonstopmode', '-recorder',
              '-output-directory', 'latexrun', filename]
@@ -537,23 +549,12 @@ class LaTeX(Task):
             raise TaskError('failed to execute latex task: ' + str(e)) from e
 
         jobname, outname = self.__parse_jobname(stdout)
-
-        # If latex succeeded with output, atomically commit the output
-        # XXX Wrong place; if user deleted committed output and
-        # re-runs, it won't get copied again.  Perhaps this should be
-        # a separate task?
-        if status == 0 and outname:
-            try:
-                shutil.copyfile(outname, outname + '~')
-                os.rename(outname + '~', os.path.basename(outname))
-            except OSError as e:
-                raise TaskError('error committing latex output: {}'.format(e))
-
         inputs, outputs = self.__parse_recorder(jobname)
         env_vars = ['TEXMFOUTPUT', 'TEXINPUTS', 'TEXFORMATS', 'TEXPOOL',
                     'TFMFONTS', 'PATH']
         return RunResult(inputs, outputs, env_vars,
-                         {'jobname': jobname, 'status': status})
+                         {'jobname': jobname, 'outname': outname,
+                          'status': status})
 
     def __feed_terminal(self, stdout):
         prefix = 'latex'
@@ -631,6 +632,7 @@ class LaTeX(Task):
             elif parts[0] == 'INPUT':
                 inputs.add(os.path.join(pwd, parts[1]))
             elif parts[0] == 'OUTPUT':
+                # XXX Full path is bad for clean
                 outputs.add(os.path.join(pwd, parts[1]))
             else:
                 raise TaskError('syntax error on line {} of {}'
@@ -661,6 +663,44 @@ class LaTeX(Task):
         if extra is None:
             return None
         return extra['jobname']
+
+    def get_outname(self):
+        extra = self._get_result_extra()
+        if extra is None:
+            return None
+        return extra['outname']
+
+    def get_status(self):
+        extra = self._get_result_extra()
+        if extra is None:
+            return None
+        return extra['status']
+
+class LaTeXCommit(Task):
+    def __init__(self, db, latex_task):
+        super().__init__(db, 'latex_commit::' +
+                         normalize_input_path(latex_task.get_tex_filename()))
+        self.__latex_task = latex_task
+
+    def get_config(self):
+        return {'status': self.__latex_task.get_status()}
+
+    def _execute(self):
+        # If latex succeeded with output, atomically commit the output
+        status = self.__latex_task.get_status()
+        outname = self.__latex_task.get_outname()
+        if status == 0 and outname:
+            commit = os.path.basename(outname)
+            debug('commiting {} to {}', outname, commit)
+            try:
+                shutil.copyfile(outname, outname + '~')
+                os.rename(outname + '~', commit)
+            except OSError as e:
+                raise TaskError('error committing latex output: {}'.format(e))
+            return RunResult([outname], [commit], [], {})
+        else:
+            debug('not committing (status {}, outname {})', status, outname)
+            return RunResult([], [], [], {})
 
 class LaTeXFilter:
     def __init__(self, nowarns=[]):
