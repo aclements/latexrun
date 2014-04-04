@@ -49,6 +49,9 @@ def main():
         help='Max number of times to run latex before giving up'
         ' (default: %(default)s)')
     arg_parser.add_argument(
+        '-O', metavar='DIR', dest='obj_dir', default='latex.out',
+        help='Directory for intermediate files (default: %(default)s)')
+    arg_parser.add_argument(
         '--debug', action='store_true',
         help='Enable detailed debug output')
     actions = arg_parser.add_argument_group('actions')
@@ -64,15 +67,11 @@ def main():
 
     debug.enabled = args.debug
 
-    # Open control database.  We'll also put output files in this
-    # directory.  I would like this to be .latexrun, but, oh wonderful
-    # TeX, openout "protection" bails if there's a dot directory in
-    # the path.
+    # Open control database.
     # XXX Is there a better place to put this?  If I'm cleaning, I
     # don't have a file name, so it can't be relative to that.
-    dbpath = 'latexrun/latexrun.db'
+    dbpath = '.latexrun.db'
     try:
-        os.makedirs(os.path.dirname(dbpath), exist_ok=True)
         db = DB(dbpath)
     except (ValueError, OSError) as e:
         print('error opening {}: {}'.format(e.filename if hasattr(e, 'filename')
@@ -93,7 +92,7 @@ def main():
         return
     try:
         task_latex = LaTeX(db, args.file, args.latex_cmd, args.latex_args,
-                           args.nowarns)
+                           args.obj_dir, args.nowarns)
         task_commit = LaTeXCommit(db, task_latex)
         task_bibtex = BibTeX(db, task_latex, args.bibtex_cmd, args.bibtex_args,
                              args.nowarns)
@@ -533,11 +532,12 @@ def normalize_input_path(path):
     return os.path.relpath(path)
 
 class LaTeX(Task):
-    def __init__(self, db, tex_filename, cmd, cmd_args, nowarns):
+    def __init__(self, db, tex_filename, cmd, cmd_args, obj_dir, nowarns):
         super().__init__(db, 'latex::' + normalize_input_path(tex_filename))
         self.__tex_filename = tex_filename
         self.__cmd = cmd
         self.__cmd_args = cmd_args
+        self.__obj_dir = obj_dir
         self.__nowarns = nowarns
 
         self.__pass = 0
@@ -555,7 +555,7 @@ class LaTeX(Task):
         # values can use an equals or a space).
         return [self.__cmd] + self.__cmd_args + \
             ['-interaction', 'nonstopmode', '-recorder',
-             '-output-directory', 'latexrun', filename]
+             '-output-directory', self.__obj_dir, filename]
 
     def get_config(self):
         return {'args': self.__get_args()}
@@ -565,6 +565,10 @@ class LaTeX(Task):
         self.__pass += 1
         args = self.__get_args()
         debug('running {}', args)
+        try:
+            os.makedirs(self.__obj_dir, exist_ok=True)
+        except OSError as e:
+            raise TaskError('failed to create %s: ' % self.__obj_dir + str(e))
         try:
             p = subprocess.Popen(args,
                                  stdin=subprocess.DEVNULL,
@@ -723,6 +727,9 @@ class LaTeXCommit(Task):
         outname = self.__latex_task.get_outname()
         if status == 0 and outname:
             commit = os.path.basename(outname)
+            if os.path.abspath(commit) == os.path.abspath(outname):
+                debug('skipping commit (outname is commit name)')
+                return RunResult([], [], [], {})
             debug('commiting {} to {}', outname, commit)
             try:
                 shutil.copyfile(outname, outname + '~')
