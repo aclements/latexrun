@@ -984,13 +984,14 @@ class LaTeXFilter:
         # lines are truncated so they never wrap.  Each pair of lines
         # will start with either "<something> " if the context is a
         # token list, "<*> " for terminal input (or command line),
-        # "<read ...>" for stream reads, or "l.[0-9]+ " if it's a
-        # file.  This is followed by the errant input with a line
-        # break where the error occurred.
+        # "<read ...>" for stream reads, something like "\macroname
+        # #1->" for macros, or "l.[0-9]+ " if it's a file.  This is
+        # followed by the errant input with a line break where the
+        # error occurred.
         lineno = None
         found_context = False
         while self.__avail:
-            if self.__lookingatre(br'<([a-z]+|\*|read [^ >]*)> '):
+            if self.__lookingatre(br'<([a-z]+|\*|read [^ >]*)> |\\.*->'):
                 found_context = True
                 self.__skip_line()
             elif self.__lookingatre(b'l.[0-9]+ '):
