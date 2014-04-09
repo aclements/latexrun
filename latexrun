@@ -633,7 +633,7 @@ class LaTeX(Task):
         if jobname is None:
             print(stdout.decode(), file=sys.stderr)
             raise TaskError('failed to extract job name from latex log')
-        for m in re.finditer(br'^Output written on (.*\.[^ .]+) \([0-9]+ pages',
+        for m in re.finditer(br'^Output written on (.*\.[^ .]+) \([0-9]+ page',
                              stdout, re.MULTILINE):
             outname = m.group(1).decode()
         if outname is None and not re.search(br'^No pages of output\.$', stdout,
