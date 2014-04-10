@@ -252,6 +252,62 @@ class HashCache:
                 del self.__cache[key]
 hash_cache = HashCache()
 
+class Progress:
+    _INITIALIZED = False
+    _enabled = False
+
+    def __init__(self, prefix):
+        self.__prefix = prefix
+        if not Progress._INITIALIZED:
+            Progress._INITIALIZED = True
+            if debug.enabled or not os.isatty(sys.stdout.fileno()):
+                return
+            # Fetch terminal capabilities we need
+            curses.setupterm()
+            Progress.__ti = {}
+            for cap in ['cr', 'el', 'rmam', 'smam']:
+                string = curses.tigetstr(cap)
+                if string is None or b'$<' in string:
+                    # Don't have this capability or it has a pause
+                    return
+                Progress.__ti[cap] = string
+            Progress._enabled = True
+
+    def __send_caps(self, *caps):
+        # Flush TextIOWrapper to the binary IO buffer
+        sys.stdout.flush()
+        for cap in caps:
+            # We should use curses.putp here, but it's broken in
+            # Python3 because it writes directly to C's buffered
+            # stdout and there's no way to flush that.
+            sys.stdout.buffer.write(Progress.__ti[cap])
+
+    def __enter__(self):
+        self.last = ''
+        self.update('')
+        return self
+
+    def __exit__(self, typ, value, traceback):
+        if Progress._enabled:
+            # Beginning of line and clear
+            self.__send_caps('cr', 'el')
+            sys.stdout.flush()
+
+    def update(self, msg):
+        if not Progress._enabled:
+            return
+        out = '[' + self.__prefix + ']'
+        if msg:
+            out += ' ' + msg
+        if out != self.last:
+            # Beginning of line, clear line, disable wrap
+            self.__send_caps('cr', 'el', 'rmam')
+            sys.stdout.write(out)
+            # Enable wrap
+            self.__send_caps('smam')
+            self.last = out
+            sys.stdout.flush()
+
 class Message(collections.namedtuple(
         'Message', 'typ filename lineno msg')):
     def __str__(self):
@@ -457,62 +513,6 @@ class RunResult(collections.namedtuple(
     enable reporting of a task's results).
     """
     pass
-
-class Progress:
-    _INITIALIZED = False
-    _enabled = False
-
-    def __init__(self, prefix):
-        self.__prefix = prefix
-        if not Progress._INITIALIZED:
-            Progress._INITIALIZED = True
-            if debug.enabled or not os.isatty(sys.stdout.fileno()):
-                return
-            # Fetch terminal capabilities we need
-            curses.setupterm()
-            Progress.__ti = {}
-            for cap in ['cr', 'el', 'rmam', 'smam']:
-                string = curses.tigetstr(cap)
-                if string is None or b'$<' in string:
-                    # Don't have this capability or it has a pause
-                    return
-                Progress.__ti[cap] = string
-            Progress._enabled = True
-
-    def __send_caps(self, *caps):
-        # Flush TextIOWrapper to the binary IO buffer
-        sys.stdout.flush()
-        for cap in caps:
-            # We should use curses.putp here, but it's broken in
-            # Python3 because it writes directly to C's buffered
-            # stdout and there's no way to flush that.
-            sys.stdout.buffer.write(Progress.__ti[cap])
-
-    def __enter__(self):
-        self.last = ''
-        self.update('')
-        return self
-
-    def __exit__(self, typ, value, traceback):
-        if Progress._enabled:
-            # Beginning of line and clear
-            self.__send_caps('cr', 'el')
-            sys.stdout.flush()
-
-    def update(self, msg):
-        if not Progress._enabled:
-            return
-        out = '[' + self.__prefix + ']'
-        if msg:
-            out += ' ' + msg
-        if out != self.last:
-            # Beginning of line, clear line, disable wrap
-            self.__send_caps('cr', 'el', 'rmam')
-            sys.stdout.write(out)
-            # Enable wrap
-            self.__send_caps('smam')
-            self.last = out
-            sys.stdout.flush()
 
 ##################################################################
 # LaTeX task
