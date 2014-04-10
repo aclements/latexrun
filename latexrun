@@ -23,7 +23,7 @@ def main():
         description='''A 21st century LaTeX wrapper,
         %(prog)s runs latex (and bibtex) the right number of times so you
         don't have to,
-        strips the log spew to make errors readable,
+        strips the log spew to make errors visible,
         and plays well with standard build tools.''')
     arg_parser.add_argument(
         '--latex-cmd', metavar='CMD', default='pdflatex',
