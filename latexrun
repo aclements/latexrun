@@ -636,8 +636,9 @@ class LaTeX(Task):
         for m in re.finditer(br'^Output written on (.*\.[^ .]+) \([0-9]+ page',
                              stdout, re.MULTILINE):
             outname = m.group(1).decode()
-        if outname is None and not re.search(br'^No pages of output\.$', stdout,
-                                             re.MULTILINE):
+        if outname is None and not \
+           re.search(br'^No pages of output\.$|^! Emergency stop\.$', stdout,
+                     re.MULTILINE):
             print(stdout.decode(), file=sys.stderr)
             raise TaskError('failed to extract output name from latex log')
         return jobname, outname
