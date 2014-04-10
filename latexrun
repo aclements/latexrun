@@ -56,11 +56,11 @@ def main():
         help='Enable detailed debug output')
     actions = arg_parser.add_argument_group('actions')
     actions.add_argument(
-        '--clean', action='store_true', help='Delete output files')
+        '--clean-all', action='store_true', help='Delete output files')
     actions.add_argument(
         'file', nargs='?', help='.tex file to compile')
     args = arg_parser.parse_args()
-    if not any([args.clean, args.file]):
+    if not any([args.clean_all, args.file]):
         arg_parser.error('at least one action is required')
     args.latex_args = args.latex_args or []
     args.bibtex_args = args.bibtex_args or []
@@ -80,7 +80,7 @@ def main():
         sys.exit(1)
 
     # Clean
-    if args.clean:
+    if args.clean_all:
         try:
             db.do_clean()
         except OSError as e:
