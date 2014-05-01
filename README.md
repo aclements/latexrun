@@ -34,7 +34,7 @@ Features
   xref tables when it catches latex in the middle of writing out a
   PDF.
 
-* Easy {.git,.hg,svn:}ignore.  Just ignore `.latexrundb` and
+* Easy {.git,.hg,svn:}ignore.  Just ignore `.latexrun.db` and
   `latex.out/`.  Done!
 
 
