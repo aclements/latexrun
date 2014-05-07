@@ -581,7 +581,10 @@ class LaTeX(Task):
         # LaTeX overwrites its own inputs.  Mark its output files as
         # clobbered before we hash its input files.
         for path in outputs:
-            hash_cache.clobber(path)
+            # In some abort cases (e.g., >=100 errors), LaTeX claims
+            # output files that don't actually exist.
+            if os.path.exists(path):
+                hash_cache.clobber(path)
         # Depend on input files.  Task.run pre-hashed outputs from the
         # previous run, so if this isn't the first run and as long as
         # the set of outputs didn't change, we'll be able to get the
@@ -637,8 +640,9 @@ class LaTeX(Task):
                              stdout, re.MULTILINE):
             outname = m.group(1).decode()
         if outname is None and not \
-           re.search(br'^No pages of output\.$|^! Emergency stop\.$', stdout,
-                     re.MULTILINE):
+           re.search(br'^No pages of output\.$|^! Emergency stop\.$'
+                     br'|^!  ==> Fatal error occurred, no output PDF file produced!$',
+                     stdout, re.MULTILINE):
             print(stdout.decode(), file=sys.stderr)
             raise TaskError('failed to extract output name from latex log')
         return jobname, outname
