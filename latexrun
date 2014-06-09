@@ -1001,10 +1001,13 @@ class LaTeXFilter:
 
     def __errmessage(self):
         # Procedure print_err (including \errmessage, itself used by
-        # LaTeX's \GenericError and all of its callers).  Prints "\n!
-        # " followed by error text.  print_err is always followed by a
-        # call to error, which prints a period, and a newline...
+        # LaTeX's \GenericError and all of its callers), as well as
+        # fatal_error.  Prints "\n!  " followed by error text
+        # ("Emergency stop" in the case of fatal_error).  print_err is
+        # always followed by a call to error, which prints a period,
+        # and a newline...
         msg = self.__consume_line(unwrap=True)[1:].strip()
+        is_fatal_error = (msg == b'Emergency stop.')
         msg = self.__simplify_message(msg)
         # ... and then calls show_context, which prints the input
         # stack as pairs of lines giving the context.  These context
@@ -1035,9 +1038,19 @@ class LaTeXFilter:
             # If we haven't found the context, skip the line.  If we
             # have found the context, skip the second context line.
             self.__skip_line()
+        stack_msg = b''
         for i, trace in enumerate(stack):
-            msg += (b'\n      at ' if i == 0 else b'\n    from ') + trace.strip()
-        self.__message('error', lineno, msg.decode())
+            stack_msg += ((b'\n      at ' if i == 0 else b'\n    from ') +
+                          trace.strip())
+
+        if is_fatal_error:
+            # fatal_error always prints one additional line of message
+            info = self.__consume_line().strip()
+            if info.startswith(b'*** '):
+                info = info[4:]
+            msg += b': '  + info.lstrip(b'(').rstrip(b')')
+
+        self.__message('error', lineno, (msg + stack_msg).decode())
 
     def __pdftex_fail(self):
         # Procedure pdftex_fail.  Prints "\n!pdfTeX error: ", the
