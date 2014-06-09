@@ -27,6 +27,9 @@ def main():
         strips the log spew to make errors visible,
         and plays well with standard build tools.''')
     arg_parser.add_argument(
+        '-o', metavar='FILE', dest='output', default=None,
+        help='Output file name (default: derived from input file)')
+    arg_parser.add_argument(
         '--latex-cmd', metavar='CMD', default='pdflatex',
         help='Latex command (default: %(default)s)')
     arg_parser.add_argument(
@@ -98,7 +101,7 @@ def main():
     try:
         task_latex = LaTeX(db, args.file, args.latex_cmd, args.latex_args,
                            args.obj_dir, args.nowarns)
-        task_commit = LaTeXCommit(db, task_latex)
+        task_commit = LaTeXCommit(db, task_latex, args.output)
         task_bibtex = BibTeX(db, task_latex, args.bibtex_cmd, args.bibtex_args,
                              args.nowarns)
         tasks = [task_latex, task_commit, task_bibtex]
@@ -734,10 +737,11 @@ class LaTeX(Task):
         return extra['status']
 
 class LaTeXCommit(Task):
-    def __init__(self, db, latex_task):
+    def __init__(self, db, latex_task, output_path):
         super().__init__(db, 'latex_commit::' +
                          normalize_input_path(latex_task.get_tex_filename()))
         self.__latex_task = latex_task
+        self.__output_path = output_path
 
     def _input_latex(self):
         return self.__latex_task.get_status(), self.__latex_task.get_outname()
@@ -749,7 +753,7 @@ class LaTeXCommit(Task):
             debug('not committing (status {}, outname {})', status, outname)
             return RunResult([], None)
 
-        commit = os.path.basename(outname)
+        commit = self.__output_path or os.path.basename(outname)
         if os.path.abspath(commit) == os.path.abspath(outname):
             debug('skipping commit (outname is commit name)')
             return RunResult([], None)
