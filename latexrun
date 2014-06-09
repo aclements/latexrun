@@ -781,6 +781,7 @@ class LaTeXFilter:
         self.__restart_messages_len = 0
         self.__messages = []
         self.__first_file = None
+        self.__fatal_error = False
 
         self.__suppress = {cls: 0 for cls in nowarns}
 
@@ -813,7 +814,9 @@ class LaTeXFilter:
                                'suppressed %s (use -W to show them)' %
                                ', '.join(msgs), filename=self.__first_file)
 
-        if eof and len(self.__file_stack):
+        if eof and len(self.__file_stack) and not self.__fatal_error:
+            # Fatal errors generally cause TeX to "succumb" without
+            # closing the file stack, so don't complain in that case.
             self.__message('warning', None,
                            "unbalanced `(' in log; file names may be wrong")
         return self
@@ -1051,6 +1054,7 @@ class LaTeXFilter:
             msg += b': '  + info.lstrip(b'(').rstrip(b')')
 
         self.__message('error', lineno, (msg + stack_msg).decode())
+        self.__fatal_error = True
 
     def __pdftex_fail(self):
         # Procedure pdftex_fail.  Prints "\n!pdfTeX error: ", the
