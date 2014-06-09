@@ -52,6 +52,9 @@ def main():
         '-O', metavar='DIR', dest='obj_dir', default='latex.out',
         help='Directory for intermediate files (default: %(default)s)')
     arg_parser.add_argument(
+        '--verbose-cmds', action='store_true', default=False,
+        help='Print commands as they are executed')
+    arg_parser.add_argument(
         '--debug', action='store_true',
         help='Enable detailed debug output')
     actions = arg_parser.add_argument_group('actions')
@@ -65,6 +68,7 @@ def main():
     args.latex_args = args.latex_args or []
     args.bibtex_args = args.bibtex_args or []
 
+    verbose_cmd.enabled = args.verbose_cmds
     debug.enabled = args.debug
 
     # Open control database.
@@ -128,6 +132,11 @@ class ArgParserWarnAction(argparse.Action):
         else:
             nowarn.discard(value)
         setattr(namespace, self.dest, nowarn)
+
+def verbose_cmd(args):
+    if verbose_cmd.enabled:
+        print(' '.join(map(shlex.quote, args)), file=sys.stderr)
+verbose_cmd.enabled = False
 
 class DB:
     """A latexrun control database."""
@@ -561,6 +570,7 @@ class LaTeX(Task):
         except OSError as e:
             raise TaskError('failed to create %s: ' % self.__obj_dir + str(e))
         try:
+            verbose_cmd(args)
             p = subprocess.Popen(args,
                                  stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE,
@@ -1162,6 +1172,7 @@ class BibTeX(Task):
         args = self._input('args')
         debug('running {}', args)
         try:
+            verbose_cmd(args)
             p = subprocess.Popen(args,
                                  stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE,
