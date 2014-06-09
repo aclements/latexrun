@@ -1,0 +1,20 @@
+% Test error unwinding
+
+\documentclass{article}
+
+\begin{document}
+\errorcontextlines=20
+
+\newtoks\testa
+\testa={a \the\testb c}
+\newtoks\testb
+\testb={b \errmessage{Error message}}
+\the\testa
+
+\end{document}
+
+%% status: 1
+
+%% output:
+%% T-unwind-error.tex:12: error: Error message
+%%       at \the\testa

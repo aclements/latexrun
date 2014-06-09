@@ -1,0 +1,16 @@
+% Test following of wrapped error messages
+
+\documentclass{article}
+
+\begin{document}
+
+\errmessage{This is a very very very very very very very very very
+  very very very long errmessage}
+
+\end{document}
+
+%% status: 1
+
+%% output:
+%% T-long-error.tex:8: error: This is a very very very very very very very very very very very very long errmessage
+%%       at very very very long errmessage}

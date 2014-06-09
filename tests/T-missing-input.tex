@@ -1,0 +1,14 @@
+\documentclass{article}
+
+\begin{document}
+\input{does-not-exist}
+\end{document}
+
+%% status: 1
+
+%% output:
+%% T-missing-input.tex:4: error: [LaTeX] File `does-not-exist.tex' not found
+%%       at <read *>
+%%     from \input{does-not-exist}
+%% T-missing-input.tex: error: ==> Fatal error occurred, no output PDF file produced!
+%% T-missing-input.tex: unbalanced `(' in log; file names may be wrong

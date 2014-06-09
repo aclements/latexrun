@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import argparse
+import subprocess
+import re
+import difflib
+
+failures = 0
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--latexrun', default='../latexrun',
+                        help='Path to latexrun (default: %(default)s)')
+    parser.add_argument('input', nargs='*', help='Input test file')
+    args = parser.parse_args()
+
+    os.makedirs('output', exist_ok=True)
+
+    for inp in args.input:
+        test(args.latexrun, inp)
+
+    sys.exit(1 if failures else 0)
+
+def check(label, passed=False, passed_expect=True):
+    global failures
+    if passed_expect and not passed:
+        failures += 1
+
+    msg, color = {(False, True): ('FAIL', 1),
+                  (True, False): ('FIXED', 2),
+                  (False, False): ('BROKEN', 3),
+                  (True, True): ('PASS', 2)}[(passed, passed_expect)]
+
+    print('\x1b[1;3%dm%-6s\x1b[0m %s' % (color, msg, label))
+
+INDENT = 7 * ' '
+
+def test(latexrun_path, input_path):
+    # Get expectations
+    input_src = open(input_path).read()
+
+    if re.search('^%% known_broken$', input_src, re.I|re.M):
+        passed_expect = False
+    else:
+        passed_expect = True
+
+    m = re.search('^%% status: (.*)', input_src, re.I|re.M)
+    if m:
+        status_expect = int(m.group(1))
+    else:
+        status_expect = 0
+
+    m = re.search('^%% output:\n((?:%% .*\n)*)', input_src, re.I|re.M)
+    if m:
+        output_expect = re.sub('^%% ', '', m.group(1), flags=re.M)
+    else:
+        output_expect = ''
+
+    # Run latexrun
+    outpath = 'output/%s.pdf' % os.path.splitext(os.path.basename(input_path))[0]
+    p = subprocess.Popen([latexrun_path, '-o', outpath, input_path],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    output = p.stdout.read().decode('latin1')
+    status = p.wait()
+
+    # Check results
+    if output != output_expect:
+        check(input_path, False, passed_expect)
+        open('output/%s.output' % input_path, 'w').write(output)
+        for line in difflib.unified_diff(output_expect.splitlines(),
+                                         output.splitlines(), lineterm='',
+                                         fromfile='expected', tofile='output'):
+            if line.startswith('-'):
+                print(INDENT + '\x1b[1;31m%s\x1b[0m' % line)
+            elif line.startswith('+'):
+                print(INDENT + '\x1b[1;32m%s\x1b[0m' % line)
+            elif line.startswith('@'):
+                print(INDENT + '\x1b[1;35m%s\x1b[0m' % line)
+            else:
+                print(INDENT + line)
+    elif status != status_expect:
+        check(input_path, False, passed_expect)
+        print(INDENT + 'Expected status %d, got %d' % (status_expect, status))
+    else:
+        check(input_path, True, passed_expect)
+
+if __name__ == '__main__':
+    main()
