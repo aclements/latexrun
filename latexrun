@@ -741,7 +741,7 @@ class LaTeXCommit(Task):
                 return RunResult([], None)
             debug('commiting {} to {}', outname, commit)
             try:
-                shutil.copyfile(outname, outname + '~')
+                shutil.copy(outname, outname + '~')
                 os.rename(outname + '~', commit)
             except OSError as e:
                 raise TaskError('error committing latex output: {}'.format(e))
