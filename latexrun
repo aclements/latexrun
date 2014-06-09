@@ -34,12 +34,6 @@ def main():
         help='Additional command-line arguments for latex.'
         ' This will be parsed and split using POSIX shell rules.')
     arg_parser.add_argument(
-        '-W', metavar='(no-)CLASS',
-        action=ArgParserWarnAction, dest='nowarns', default=set(['underfull']),
-        help='Enable/disable warning from CLASS, which can be any package name, '
-        'LaTeX warning class (e.g., font), or bad box type '
-        '(underfull, overfull, loose, tight)')
-    arg_parser.add_argument(
         '--bibtex-cmd', metavar='CMD', default='bibtex',
         help='Bibtex command (default: %(default)s)')
     arg_parser.add_argument(
@@ -49,6 +43,12 @@ def main():
         '--max-iterations', metavar='N', type=int, default=10,
         help='Max number of times to run latex before giving up'
         ' (default: %(default)s)')
+    arg_parser.add_argument(
+        '-W', metavar='(no-)CLASS',
+        action=ArgParserWarnAction, dest='nowarns', default=set(['underfull']),
+        help='Enable/disable warning from CLASS, which can be any package name, '
+        'LaTeX warning class (e.g., font), or bad box type '
+        '(underfull, overfull, loose, tight)')
     arg_parser.add_argument(
         '-O', metavar='DIR', dest='obj_dir', default='latex.out',
         help='Directory for intermediate files (default: %(default)s)')
