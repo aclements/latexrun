@@ -745,28 +745,29 @@ class LaTeXCommit(Task):
     def _execute(self):
         # If latex succeeded with output, atomically commit the output
         status, outname = self._input('latex')
-        if status == 0 and outname:
-            commit = os.path.basename(outname)
-            if os.path.abspath(commit) == os.path.abspath(outname):
-                debug('skipping commit (outname is commit name)')
-                return RunResult([], None)
-            try:
-                if os.path.exists(commit) and filecmp.cmp(outname, commit):
-                    debug('skipping commit ({} and {} are identical)',
-                          outname, commit)
-                    # To avoid confusion, touch the output file
-                    open(outname, 'r+b').close()
-                else:
-                    debug('commiting {} to {}', outname, commit)
-                    shutil.copy(outname, outname + '~')
-                    os.rename(outname + '~', commit)
-            except OSError as e:
-                raise TaskError('error committing latex output: {}'.format(e))
-            self._input('file', outname)
-            return RunResult([commit], None)
-        else:
+        if status != 0 or outname is None:
             debug('not committing (status {}, outname {})', status, outname)
             return RunResult([], None)
+
+        commit = os.path.basename(outname)
+        if os.path.abspath(commit) == os.path.abspath(outname):
+            debug('skipping commit (outname is commit name)')
+            return RunResult([], None)
+
+        try:
+            if os.path.exists(commit) and filecmp.cmp(outname, commit):
+                debug('skipping commit ({} and {} are identical)',
+                      outname, commit)
+                # To avoid confusion, touch the output file
+                open(outname, 'r+b').close()
+            else:
+                debug('commiting {} to {}', outname, commit)
+                shutil.copy(outname, outname + '~')
+                os.rename(outname + '~', commit)
+        except OSError as e:
+            raise TaskError('error committing latex output: {}'.format(e))
+        self._input('file', outname)
+        return RunResult([commit], None)
 
 class LaTeXFilter:
     def __init__(self, nowarns=[]):
