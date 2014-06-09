@@ -11,6 +11,7 @@ import collections
 import hashlib
 import shutil
 import curses
+import filecmp
 
 def debug(string, *args):
     if debug.enabled:
@@ -749,10 +750,16 @@ class LaTeXCommit(Task):
             if os.path.abspath(commit) == os.path.abspath(outname):
                 debug('skipping commit (outname is commit name)')
                 return RunResult([], None)
-            debug('commiting {} to {}', outname, commit)
             try:
-                shutil.copy(outname, outname + '~')
-                os.rename(outname + '~', commit)
+                if os.path.exists(commit) and filecmp.cmp(outname, commit):
+                    debug('skipping commit ({} and {} are identical)',
+                          outname, commit)
+                    # To avoid confusion, touch the output file
+                    open(outname, 'r+b').close()
+                else:
+                    debug('commiting {} to {}', outname, commit)
+                    shutil.copy(outname, outname + '~')
+                    os.rename(outname + '~', commit)
             except OSError as e:
                 raise TaskError('error committing latex output: {}'.format(e))
             self._input('file', outname)
