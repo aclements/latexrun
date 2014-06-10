@@ -1374,7 +1374,7 @@ class BibTeXFilter:
         # bib_err_print/bib_err/
         # bib_warn_print/bib_warn/
         # bib_one_of_two_expected_err/macro_name_warning/
-        if match(b'(.*)---?line ([0-9]+) of file (.*)'):
+        if match(b'(.*?)---?line ([0-9]+) of file (.*)'):
             # Sometimes the real error is printed on the previous line
             typ, msg = self.__canonicalize((m.group(1) or prev_line).decode())
             return (typ, m.group(3).decode(), int(m.group(2)), msg)
