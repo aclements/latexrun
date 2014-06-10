@@ -137,9 +137,16 @@ class ArgParserWarnAction(argparse.Action):
             nowarn.discard(value)
         setattr(namespace, self.dest, nowarn)
 
-def verbose_cmd(args):
+def verbose_cmd(args, cwd=None, env=None):
     if verbose_cmd.enabled:
-        print(' '.join(map(shlex.quote, args)), file=sys.stderr)
+        cmd = ' '.join(map(shlex.quote, args))
+        if cwd is not None:
+            cmd = '(cd {} && {})'.format(shlex.quote(cwd), cmd)
+        if env is not None:
+            for k, v in env.items():
+                if os.environ.get(k) != v:
+                    cmd = '{}={} {}'.format(k, shlex.quote(v), cmd)
+        print(cmd, file=sys.stderr)
 verbose_cmd.enabled = False
 
 class DB:
