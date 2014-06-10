@@ -659,6 +659,14 @@ class LaTeX(Task):
                      stdout, re.MULTILINE):
             print(stdout.decode(), file=sys.stderr)
             raise TaskError('failed to extract output name from latex log')
+
+        # LuaTeX (0.76.0) doesn't include the output directory in the
+        # logged transcript or output file name.
+        if os.path.basename(jobname) == jobname and \
+           os.path.exists(os.path.join(self.__obj_dir, jobname + '.log')):
+            jobname = os.path.join(self.__obj_dir, jobname)
+            outname = os.path.join(self.__obj_dir, outname)
+
         return jobname, outname
 
     def __parse_recorder(self, jobname):
