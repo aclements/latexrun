@@ -6,6 +6,7 @@ import argparse
 import subprocess
 import re
 import difflib
+import shutil
 
 failures = 0
 
@@ -59,6 +60,16 @@ def test(latexrun_path, input_path):
         output_expect = re.sub('^%% ', '', m.group(1), flags=re.M)
     else:
         output_expect = ''
+
+    # Clean
+    try:
+        shutil.rmtree(os.path.join(os.path.dirname(input_path), 'latex.out'))
+    except FileNotFoundError:
+        pass
+    try:
+        os.unlink(os.path.join(os.path.dirname(input_path), '.latexrun.db'))
+    except FileNotFoundError:
+        pass
 
     # Run latexrun
     input_dir = os.path.dirname(input_path)
