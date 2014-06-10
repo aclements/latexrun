@@ -415,7 +415,7 @@ class Task:
             method = getattr(self, '_input_' + fn, None)
             if method is None:
                 return 'unknown dependency method {}'.format(fn)
-            if method(*args) != val:
+            if method == self._input_unstable or method(*args) != val:
                 return '{}{}'.format(fn, tuple(args))
         return None
 
@@ -517,6 +517,10 @@ class Task:
     def _input_file(self, path):
         return hash_cache.get(path)
 
+    def _input_unstable(self):
+        """Mark this run as unstable, regardless of other inputs."""
+        return None
+
 class RunResult(collections.namedtuple(
         'RunResult', 'output_filenames extra')):
     """The result of a single task execution.
@@ -605,6 +609,9 @@ class LaTeX(Task):
         # input hashes, even if they were clobbered.
         for path in inputs:
             self._input('file', path)
+
+        self.__create_outdirs(stdout)
+
         return RunResult(outputs,
                          {'jobname': jobname, 'outname': outname,
                           'status': status})
@@ -708,6 +715,26 @@ class LaTeX(Task):
         # Ironically, latex omits the .fls file itself
         outputs.add(filename)
         return inputs, outputs
+
+    def __create_outdirs(self, stdout):
+        # In some cases, such as \include'ing a file from a
+        # subdirectory, TeX will attempt to create files in
+        # subdirectories of the output directory that don't exist.
+        # Detect this, create the output directory, and re-run.
+        m = re.search(b'^! I can\'t write on file `(.*)\'\\.$', stdout, re.M)
+        if m and m.group(1).find(b'/') > 0 and b'../' not in m.group(1):
+            debug('considering creating output sub-directory for {}'.
+                  format(m.group(1)))
+            subdir = os.path.dirname(m.group(1))
+            newdir = os.path.join(self.__obj_dir.encode(), subdir)
+            if os.path.isdir(subdir) and not os.path.isdir(newdir):
+                debug('creating output subdirectory {}'.format(newdir))
+                try:
+                    os.mkdir(newdir)
+                except OSError as e:
+                    raise TaskError('failed to create output subdirectory: ' +
+                                    str(e)) from e
+                self._input('unstable')
 
     def report(self):
         extra = self._get_result_extra()
