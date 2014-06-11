@@ -890,7 +890,7 @@ class LaTeXFilter:
             self.__suppress[cls] += 1
             return
         filename = filename or (self.__file_stack[-1] if self.__file_stack
-                                else None)
+                                else self.__first_file)
         self.__messages.append(Message(typ, filename, lineno, msg))
 
     def __ensure_line(self):
