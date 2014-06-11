@@ -1067,7 +1067,7 @@ class LaTeXFilter:
         found_context = False
         stack = []
         while self.__avail:
-            m1 = self.__lookingatre(br'<([a-z]+|\*|read [^ >]*)> |\\.*->')
+            m1 = self.__lookingatre(br'<([a-z ]+|\*|read [^ >]*)> |\\.*->')
             m2 = self.__lookingatre(b'l\.[0-9]+ ')
             if m1:
                 found_context = True
