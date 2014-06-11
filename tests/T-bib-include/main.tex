@@ -1,0 +1,11 @@
+% Test \bibliography occurring in an \included file (this requires
+% latexrun to recursively scan aux files for bib commands.)
+
+\documentclass{article}
+
+\begin{document}
+
+\cite{ent1}
+\include{biblio}
+
+\end{document}

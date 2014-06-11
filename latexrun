@@ -1208,14 +1208,36 @@ class BibTeX(Task):
             # affecting system state.  Hence, this task is trivially
             # stable.
             return True
-        aux_data = open(jobname + '.aux').read()
-        if not re.search(r'^\\bibstyle\{', aux_data, flags=re.M) or \
-           not re.search(r'^\\bibdata\{',  aux_data, flags=re.M):
+        if not self.__find_bib_cmds(os.path.dirname(jobname), jobname + '.aux'):
             # The tex file doesn't refer to any bibliographic data, so
             # don't run bibtex.
             return True
 
         return super().stable()
+
+    def __find_bib_cmds(self, basedir, auxname, stack=()):
+        debug('scanning for bib commands in {}'.format(auxname))
+        if auxname in stack:
+            raise TaskError('.aux file loop')
+        stack = stack + (auxname,)
+
+        try:
+            aux_data = open(auxname).read()
+        except FileNotFoundError:
+            # The aux file may not exist if latex aborted
+            return False
+        if re.search(r'^\\bibstyle\{', aux_data, flags=re.M) or \
+           re.search(r'^\\bibdata\{',  aux_data, flags=re.M):
+            return True
+
+        # Recurse into included aux files (see aux_input_command), in
+        # case \bibliography appears in an \included file.
+        for m in re.finditer(r'^\\@input\{([^}]*)\}', aux_data, flags=re.M):
+            if self.__find_bib_cmds(basedir, os.path.join(basedir, m.group(1)),
+                                    stack):
+                return True
+
+        return False
 
     def _input_args(self):
         aux_name = os.path.basename(self.__latex_task.get_jobname()) + '.aux'
