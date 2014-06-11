@@ -973,6 +973,12 @@ class LaTeXFilter:
                                    self.__consume_line(unwrap=True).strip()
                                ).decode())
                 return
+            if lookingatre(b'No pages of output\\.$', re.M):
+                # Inform the user, since it can be confusing that they
+                # don't get any output file at all
+                self.__consume_line()
+                self.__message('warning', None, 'No pages (no output produced)')
+                return
             # Other things that are common and irrelevant
             if lookingatre(br'(Package|Class|LaTeX) (\w+ )?info: ', re.I):
                 return self.__generic_info()

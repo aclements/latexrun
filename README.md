@@ -139,12 +139,6 @@ Tasks
   optional inputs.  Neither of these solutions solves the problem for
   general user input files.
 
-* If LaTeX logs "No pages of output." on a line, then no output file
-  is generated and the exit status is 0.  Perhaps that should be a
-  warning or an error?  Currently we don't report anything, which is
-  confusing.  This message takes the place of the "Output written on
-  X" that indicates the main output file name.
-
 * Provide a way to disable output filters for things that do their own
   output parsing (e.g., AUCTeX).
 
