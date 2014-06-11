@@ -964,6 +964,15 @@ class LaTeXFilter:
                 return self.__bad_box()
             if lookingatre(b'(Package |Class |LaTeX |pdfTeX )?(\w+ )?warning: ', re.I):
                 return self.__generic_warning()
+            if lookingatre(b'No file .*\\.tex\\.$', re.M):
+                # This happens with \includes of missing files.  For
+                # whatever reason, LaTeX doesn't consider this even
+                # worth a warning, but I do!
+                self.__message('warning', None,
+                               self.__simplify_message(
+                                   self.__consume_line(unwrap=True).strip()
+                               ).decode())
+                return
             # Other things that are common and irrelevant
             if lookingatre(br'(Package|Class|LaTeX) (\w+ )?info: ', re.I):
                 return self.__generic_info()
