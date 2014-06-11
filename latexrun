@@ -1218,8 +1218,11 @@ class BibTeX(Task):
         return super().stable()
 
     def _input_args(self):
-        aux_name = self.__latex_task.get_jobname() + '.aux'
+        aux_name = os.path.basename(self.__latex_task.get_jobname()) + '.aux'
         return [self.__cmd] + self.__cmd_args + [aux_name]
+
+    def _input_cwd(self):
+        return os.path.dirname(self.__latex_task.get_jobname())
 
     def _input_auxfile(self, auxname):
         # We don't consider the .aux files regular inputs.
@@ -1236,15 +1239,38 @@ class BibTeX(Task):
                         h.update(line)
                 return h.hexdigest()
         except FileNotFoundError:
+            debug('{} does not exist', auxname)
             return None
 
+    def __path_join(self, first, rest):
+        if rest is None:
+            # Append ':' to keep the default search path
+            return first + ':'
+        return first + ':' + rest
+
     def _execute(self):
-        # Run bibtex
-        args = self._input('args')
-        debug('running {}', args)
+        # This gets complicated when \include is involved.  \include
+        # switches to a different aux file and records its path in the
+        # main aux file.  However, BibTeX does not consider this path
+        # to be relative to the location of the main aux file, so we
+        # have to run BibTeX *in the output directory* for it to
+        # follow these includes (there's no way to tell BibTeX other
+        # locations to search).  Unfortunately, this means BibTeX will
+        # no longer be able to find local bib or bst files, but so we
+        # tell it where to look by setting BIBINPUTS and BSTINPUTS
+        # (luckily we can control this search).  We have to pass this
+        # same environment down to Kpathsea when we resolve the paths
+        # in BibTeX's log.
+        args, cwd = self._input('args'), self._input('cwd')
+        debug('running {} in {}', args, cwd)
+
+        env = os.environ.copy()
+        env['BIBINPUTS'] = self.__path_join(os.getcwd(), env.get('BIBINPUTS'))
+        env['BSTINPUTS'] = self.__path_join(os.getcwd(), env.get('BSTINPUTS'))
+
         try:
-            verbose_cmd(args)
-            p = subprocess.Popen(args,
+            verbose_cmd(args, cwd, env)
+            p = subprocess.Popen(args, cwd=cwd, env=env,
                                  stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT)
@@ -1253,7 +1279,7 @@ class BibTeX(Task):
         except OSError as e:
             raise TaskError('failed to execute bibtex task: ' + str(e)) from e
 
-        inputs, auxnames = self.__parse_inputs(stdout.decode())
+        inputs, auxnames = self.__parse_inputs(stdout.decode(), cwd, env)
         if not inputs and not auxnames:
             # BibTeX failed catastrophically.
             print(stdout.decode(), file=sys.stderr)
@@ -1271,7 +1297,8 @@ class BibTeX(Task):
 
         outbase = auxnames[0][:-4]
         outputs = [outbase + '.bbl', outbase + '.blg']
-        return RunResult(outputs, {'outbase': outbase, 'status': status})
+        return RunResult(outputs, {'outbase': outbase, 'status': status,
+                                   'inputs': inputs})
 
     def __feed_terminal(self, stdout):
         with Progress('bibtex') as progress:
@@ -1288,11 +1315,12 @@ class BibTeX(Task):
                         progress.update(line.split(b': ', 1)[1].decode())
         return b''.join(buf)
 
-    def __parse_inputs(self, log):
+    def __parse_inputs(self, log, cwd, env):
         # BibTeX conveniently logs every file that it opens, and its
         # log is actually sensible (see calls to a_open_in in
         # bibtex.web.)  The only trick is that these file names are
-        # pre-kpathsea lookup.
+        # pre-kpathsea lookup and may be relative to the directory we
+        # ran BibTeX in.
         #
         # Because BibTeX actually depends on very little in the .aux
         # file (and it's likely other things will change in the .aux
@@ -1305,16 +1333,16 @@ class BibTeX(Task):
             m = re.match('(?:The top-level auxiliary file:'
                          '|A level-[0-9]+ auxiliary file:) (.*)', line)
             if m:
-                auxnames.append(m.group(1))
+                auxnames.append(os.path.join(cwd, m.group(1)))
                 continue
             m = re.match('(?:(The style file:)|(Database file #[0-9]+:)) (.*)',
                          line)
             if m:
                 filename = m.group(3)
                 if m.group(1):
-                    filename = kpathsea.find_file(filename, 'bst')
+                    filename = kpathsea.find_file(filename, 'bst', cwd, env)
                 elif m.group(2):
-                    filename = kpathsea.find_file(filename, 'bib')
+                    filename = kpathsea.find_file(filename, 'bib', cwd, env)
                 inputs.append(filename)
 
         return inputs, auxnames
@@ -1326,7 +1354,7 @@ class BibTeX(Task):
 
         # Parse and pretty-print the log
         log = open(extra['outbase'] + '.blg', 'rb').read()
-        inputs, auxnames = self.__parse_inputs(log.decode())
+        inputs = extra['inputs']
         for msg in BibTeXFilter(log, inputs).get_messages():
             print(msg, file=sys.stderr)
 
@@ -1508,17 +1536,22 @@ class Kpathsea:
     def __init__(self, program_name):
         self.__progname = program_name
 
-    def find_file(self, name, format):
+    def find_file(self, name, format, cwd=None, env=None):
         """Return the resolved path of 'name' or None."""
 
         args = ['kpsewhich', '-progname', self.__progname, '-format', format,
                 name]
         try:
-            return subprocess.check_output(args, universal_newlines=True).strip()
+            verbose_cmd(args, cwd, env)
+            path = subprocess.check_output(
+                args, cwd=cwd, env=env, universal_newlines=True).strip()
         except subprocess.CalledProcessError as e:
             if e.returncode != 1:
                 raise
             return None
+        if cwd is None:
+            return path
+        return os.path.join(cwd, path)
 
 if __name__ == "__main__":
     main()
