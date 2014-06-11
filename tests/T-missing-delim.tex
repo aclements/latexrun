@@ -1,0 +1,21 @@
+% Test missing delimiter error parsing (TeX's error description
+% happens to contain a lot of "("s and "{"s and such that can throw
+% off balancing).
+
+\documentclass{article}
+
+\begin{document}
+
+$\left$
+
+\end{document}
+
+%% status: 1
+
+%% output:
+%% T-missing-delim.tex:9: error: Missing delimiter (. inserted)
+%%       at <to be read again>
+%%     from $\left$
+%% T-missing-delim.tex:9: error: Missing \right. inserted
+%%       at <inserted text>
+%%     from $\left$

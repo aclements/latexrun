@@ -996,6 +996,13 @@ class LaTeXFilter:
             # parsing, since we definitely didn't match any of the
             # known message types above.
             self.__save_restart_point()
+        elif ((self.__data.startswith(b'`', m.start() - 1) or
+               self.__data.startswith(b'`\\', m.start() - 2)) and
+               self.__data.startswith(b'\'', m.start() + 1)):
+            # (, ), {, and } sometimes appear in TeX's error
+            # descriptions, but they're always in `'s (and sometimes
+            # backslashed)
+            return
         elif ch == ord('('):
             # XXX Check that the stack doesn't drop to empty and then re-grow
             first = self.__first_file is None and self.__col == 1
