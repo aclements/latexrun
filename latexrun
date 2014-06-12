@@ -1129,12 +1129,12 @@ class LaTeXFilter:
         self.__message('error', None, msg.decode())
 
     def __runaway(self):
-        # Procedure runaway.  Prints "\nRunaway ...\n" followed by
-        # token list (user text).  Always followed by a call to
-        # print_err, so skip lines until we see the print_err.
+        # Procedure runaway.  Prints "\nRunaway ...\n" possibly
+        # followed by token list (user text).  Always followed by a
+        # call to print_err, so skip lines until we see the print_err.
         self.__skip_line()      # Skip "Runaway ...\n"
-        self.__skip_line()      # Skip token list
-        while not self.__lookingat(b'!') and self.__avail:
+        if not self.__lookingat(b'! ') and self.__avail:
+            # Skip token list, which is limited to one line
             self.__skip_line()
 
     def __bad_box(self):

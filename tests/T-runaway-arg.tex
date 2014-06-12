@@ -1,0 +1,20 @@
+% Test runaway arguments where TeX prints no token list
+
+\documentclass{article}
+
+\def\foo#1{}
+
+\begin{document}
+
+X
+
+\foo
+
+\end{document}
+
+%% status: 1
+
+%% output:
+%% T-runaway-arg.tex:12: error: Paragraph ended before \foo was complete
+%%       at <to be read again>
+%%     from 
