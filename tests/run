@@ -42,7 +42,7 @@ def test(latexrun_path, input_path):
     testname = os.path.splitext(input_path.split('/')[0])[0]
 
     # Get expectations
-    input_src = open(input_path).read()
+    input_src = open(input_path, errors='surrogateescape').read()
 
     if re.search('^%% known_broken$', input_src, re.I|re.M):
         passed_expect = False
@@ -80,24 +80,29 @@ def test(latexrun_path, input_path):
                           os.path.basename(input_path)],
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          cwd = input_dir or None)
-    output = p.stdout.read().decode('latin1')
+    output = p.stdout.read().decode('ascii', errors='surrogateescape')
     status = p.wait()
 
     # Check results
     if output != output_expect:
         check(testname, False, passed_expect)
-        open('output/%s.output' % testname, 'w').write(output)
+        open('output/%s.output' % testname, 'w', errors='surrogateescape')\
+            .write(output)
+        msg = []
         for line in difflib.unified_diff(output_expect.splitlines(),
                                          output.splitlines(), lineterm='',
                                          fromfile='expected', tofile='output'):
             if line.startswith('-'):
-                print(INDENT + '\x1b[1;31m%s\x1b[0m' % line)
+                msg.append(INDENT + '\x1b[1;31m%s\x1b[0m' % line)
             elif line.startswith('+'):
-                print(INDENT + '\x1b[1;32m%s\x1b[0m' % line)
+                msg.append(INDENT + '\x1b[1;32m%s\x1b[0m' % line)
             elif line.startswith('@'):
-                print(INDENT + '\x1b[1;35m%s\x1b[0m' % line)
+                msg.append(INDENT + '\x1b[1;35m%s\x1b[0m' % line)
             else:
-                print(INDENT + line)
+                msg.append(INDENT + line)
+        sys.stdout.flush()
+        sys.stdout.buffer.write('\n'.join(msg).encode(errors='surrogateescape'))
+        print()
     elif status != status_expect:
         check(testname, False, passed_expect)
         print(INDENT + 'Expected status %d, got %d' % (status_expect, status))
