@@ -12,6 +12,7 @@ import hashlib
 import shutil
 import curses
 import filecmp
+import io
 
 def debug(string, *args):
     if debug.enabled:
@@ -74,6 +75,22 @@ def main():
 
     verbose_cmd.enabled = args.verbose_cmds
     debug.enabled = args.debug
+
+    # A note about encodings: POSIX encoding is a mess; TeX encoding
+    # is a disaster.  Our goal is to make things no worse, so we want
+    # byte-accurate round-tripping of TeX messages.  Since TeX
+    # messages are *basically* text, we use strings and
+    # surrogateescape'ing for both input and output.  I'm not fond of
+    # setting surrogateescape globally, but it's far easier than
+    # dealing with every place we pass TeX output through.
+    # Conveniently, JSON can round-trip surrogateescape'd strings, so
+    # our control database doesn't need special handling.
+    sys.stdout = io.TextIOWrapper(
+        sys.stdout.buffer, encoding=sys.stdout.encoding,
+        errors='surrogateescape', line_buffering=sys.stdout.line_buffering)
+    sys.stderr = io.TextIOWrapper(
+        sys.stderr.buffer, encoding=sys.stderr.encoding,
+        errors='surrogateescape', line_buffering=sys.stderr.line_buffering)
 
     # Open control database.
     # XXX Is there a better place to put this?  If I'm cleaning, I
@@ -636,6 +653,8 @@ class LaTeX(Task):
                 data = os.read(stdout.fileno(), 4096)
                 if not data:
                     break
+                # See "A note about encoding" above
+                data = data.decode('ascii', errors='surrogateescape')
                 buf.append(data)
                 filt.feed(data)
                 file_stack = filt.get_file_stack()
@@ -646,7 +665,7 @@ class LaTeX(Task):
                     progress.update('>' * len(file_stack) + ' ' + tos)
                 else:
                     progress.update('')
-            return b''.join(buf)
+            return ''.join(buf)
 
     def __parse_jobname(self, stdout):
         """Extract the job name and output name from latex's output.
@@ -658,20 +677,20 @@ class LaTeX(Task):
         pages of output.
         """
         jobname = outname = None
-        for m in re.finditer(br'^Transcript written on (.*)\.log\.$', stdout,
+        for m in re.finditer(r'^Transcript written on (.*)\.log\.$', stdout,
                              re.MULTILINE):
-            jobname = m.group(1).decode()
+            jobname = m.group(1)
         if jobname is None:
-            print(stdout.decode(), file=sys.stderr)
+            print(stdout, file=sys.stderr)
             raise TaskError('failed to extract job name from latex log')
-        for m in re.finditer(br'^Output written on (.*\.[^ .]+) \([0-9]+ page',
+        for m in re.finditer(r'^Output written on (.*\.[^ .]+) \([0-9]+ page',
                              stdout, re.MULTILINE):
-            outname = m.group(1).decode()
+            outname = m.group(1)
         if outname is None and not \
-           re.search(br'^No pages of output\.$|^! Emergency stop\.$'
-                     br'|^!  ==> Fatal error occurred, no output PDF file produced!$',
+           re.search(r'^No pages of output\.$|^! Emergency stop\.$'
+                     r'|^!  ==> Fatal error occurred, no output PDF file produced!$',
                      stdout, re.MULTILINE):
-            print(stdout.decode(), file=sys.stderr)
+            print(stdout, file=sys.stderr)
             raise TaskError('failed to extract output name from latex log')
 
         # LuaTeX (0.76.0) doesn't include the output directory in the
@@ -728,12 +747,12 @@ class LaTeX(Task):
         # subdirectory, TeX will attempt to create files in
         # subdirectories of the output directory that don't exist.
         # Detect this, create the output directory, and re-run.
-        m = re.search(b'^! I can\'t write on file `(.*)\'\\.$', stdout, re.M)
-        if m and m.group(1).find(b'/') > 0 and b'../' not in m.group(1):
+        m = re.search('^! I can\'t write on file `(.*)\'\\.$', stdout, re.M)
+        if m and m.group(1).find('/') > 0 and '../' not in m.group(1):
             debug('considering creating output sub-directory for {}'.
                   format(m.group(1)))
             subdir = os.path.dirname(m.group(1))
-            newdir = os.path.join(self.__obj_dir.encode(), subdir)
+            newdir = os.path.join(self.__obj_dir, subdir)
             if os.path.isdir(subdir) and not os.path.isdir(newdir):
                 debug('creating output subdirectory {}'.format(newdir))
                 try:
@@ -749,7 +768,7 @@ class LaTeX(Task):
             return 0
 
         # Parse the log
-        logfile = open(extra['jobname'] + '.log', 'rb')
+        logfile = open(extra['jobname'] + '.log', 'rt', errors='surrogateescape')
         for msg in LaTeXFilter(self.__nowarns).feed(
                 logfile.read(), True).get_messages():
             print(msg, file=sys.stderr)
@@ -817,7 +836,7 @@ class LaTeXCommit(Task):
 
 class LaTeXFilter:
     def __init__(self, nowarns=[]):
-        self.__data = b''
+        self.__data = ''
         self.__restart_pos = 0
         self.__restart_file_stack = []
         self.__restart_messages_len = 0
@@ -828,7 +847,7 @@ class LaTeXFilter:
         self.__suppress = {cls: 0 for cls in nowarns}
 
     def feed(self, data, eof=False):
-        """Feed bytes of LaTeX log data to the parser.
+        """Feed LaTeX log data to the parser.
 
         The log data can be from LaTeX's standard output, or from the
         log file.  If there will be no more data, set eof to True.
@@ -897,8 +916,8 @@ class LaTeXFilter:
         """Update lstart and lend."""
         if self.__lstart <= self.__pos < self.__lend:
             return
-        self.__lstart = self.__data.rfind(b'\n', 0, self.__pos) + 1
-        self.__lend = self.__data.find(b'\n', self.__pos) + 1
+        self.__lstart = self.__data.rfind('\n', 0, self.__pos) + 1
+        self.__lend = self.__data.find('\n', self.__pos) + 1
         if self.__lend == 0:
             self.__lend = len(self.__data)
 
@@ -954,42 +973,41 @@ class LaTeXFilter:
         lookingat, lookingatre = self.__lookingat, self.__lookingatre
         if self.__col == 0:
             # The following messages are always preceded by a newline
-            if lookingat(b'! '):
+            if lookingat('! '):
                 return self.__errmessage()
-            if lookingat(b'!pdfTeX error: '):
+            if lookingat('!pdfTeX error: '):
                 return self.__pdftex_fail()
-            if lookingat(b'Runaway '):
+            if lookingat('Runaway '):
                 return self.__runaway()
-            if lookingatre(br'(Overfull|Underfull|Loose|Tight) \\[hv]box \('):
+            if lookingatre(r'(Overfull|Underfull|Loose|Tight) \\[hv]box \('):
                 return self.__bad_box()
-            if lookingatre(b'(Package |Class |LaTeX |pdfTeX )?(\w+ )?warning: ', re.I):
+            if lookingatre('(Package |Class |LaTeX |pdfTeX )?(\w+ )?warning: ', re.I):
                 return self.__generic_warning()
-            if lookingatre(b'No file .*\\.tex\\.$', re.M):
+            if lookingatre('No file .*\\.tex\\.$', re.M):
                 # This happens with \includes of missing files.  For
                 # whatever reason, LaTeX doesn't consider this even
                 # worth a warning, but I do!
                 self.__message('warning', None,
                                self.__simplify_message(
-                                   self.__consume_line(unwrap=True).strip()
-                               ).decode())
+                                   self.__consume_line(unwrap=True).strip()))
                 return
-            if lookingatre(b'No pages of output\\.$', re.M):
+            if lookingatre('No pages of output\\.$', re.M):
                 # Inform the user, since it can be confusing that they
                 # don't get any output file at all
                 self.__consume_line()
                 self.__message('warning', None, 'No pages (no output produced)')
                 return
             # Other things that are common and irrelevant
-            if lookingatre(br'(Package|Class|LaTeX) (\w+ )?info: ', re.I):
+            if lookingatre(r'(Package|Class|LaTeX) (\w+ )?info: ', re.I):
                 return self.__generic_info()
-            if lookingatre(br'(Document Class|File|Package): '):
+            if lookingatre(r'(Document Class|File|Package): '):
                 # Output from "\ProvidesX"
                 return self.__consume_line(unwrap=True)
-            if lookingatre(br'\\\w+=\\[a-z]+\d+\n'):
+            if lookingatre(r'\\\w+=\\[a-z]+\d+\n'):
                 # Output from "\new{count,dimen,skip,...}"
                 return self.__consume_line(unwrap=True)
 
-        # print(self.__data[self.__lstart:self.__lend].decode().rstrip())
+        # print(self.__data[self.__lstart:self.__lend].rstrip())
         # self.__pos = self.__lend
         # return
 
@@ -1000,47 +1018,47 @@ class LaTeXFilter:
         # parentheses belong to the file name stack or, if they're in
         # random other messages, they're at least balanced and nothing
         # interesting happens between them.
-        m = re.compile(b'[(){}\n]').search(self.__data, self.__pos)
+        m = re.compile('[(){}\n]').search(self.__data, self.__pos)
         if m is None:
             self.__pos = len(self.__data)
             return
         self.__pos = m.start() + 1
         ch = self.__data[m.start()]
-        if ch == ord('\n'):
+        if ch == '\n':
             # Save this as a known-good restart point for incremental
             # parsing, since we definitely didn't match any of the
             # known message types above.
             self.__save_restart_point()
-        elif ((self.__data.startswith(b'`', m.start() - 1) or
-               self.__data.startswith(b'`\\', m.start() - 2)) and
-               self.__data.startswith(b'\'', m.start() + 1)):
+        elif ((self.__data.startswith('`', m.start() - 1) or
+               self.__data.startswith('`\\', m.start() - 2)) and
+               self.__data.startswith('\'', m.start() + 1)):
             # (, ), {, and } sometimes appear in TeX's error
             # descriptions, but they're always in `'s (and sometimes
             # backslashed)
             return
-        elif ch == ord('('):
+        elif ch == '(':
             # XXX Check that the stack doesn't drop to empty and then re-grow
             first = self.__first_file is None and self.__col == 1
             filename = self.__filename()
             self.__file_stack.append(filename)
             if first:
                 self.__first_file = filename
-        elif ch == ord(')'):
+        elif ch == ')':
             if len(self.__file_stack):
                 self.__file_stack.pop()
             else:
                 self.__message('warning', None,
                                "extra `)' in log; file names may be wrong ")
-        elif ch == ord('{'):
+        elif ch == '{':
             # TeX uses this for various things we want to ignore, like
             # file names and print_mark.  Consume up to the '}'
-            epos = self.__data.find(b'}', self.__pos)
+            epos = self.__data.find('}', self.__pos)
             if epos != -1:
                 self.__pos = epos + 1
             else:
                 self.__message('warning', None,
                                "unbalanced `{' in log; file names may be wrong")
-        elif ch == ord('}'):
+        elif ch == '}':
             self.__message('warning', None,
                            "extra `}' in log; file names may be wrong")
 
@@ -1053,17 +1071,17 @@ class LaTeXFilter:
         while first or (initcol == 1 and self.__col == 79):
             if not first:
                 self.__pos += 1
-            m = self.__lookingatre(br'[^(){} \n]*')
-            name += m.group().decode()
+            m = self.__lookingatre(r'[^(){} \n]*')
+            name += m.group()
             self.__pos = m.end()
             first = False
         return name
 
     def __simplify_message(self, msg):
-        msg = re.sub(br'^(?:Package |Class |LaTeX |pdfTeX )?([^ ]+) (?:Error|Warning): ',
-                     br'[\1] ', msg, flags=re.I)
-        msg = re.sub(br'\.$', b'', msg)
-        msg = re.sub(br'has occurred (while \\output is active)', br'\1', msg)
+        msg = re.sub(r'^(?:Package |Class |LaTeX |pdfTeX )?([^ ]+) (?:Error|Warning): ',
+                     r'[\1] ', msg, flags=re.I)
+        msg = re.sub(r'\.$', '', msg)
+        msg = re.sub(r'has occurred (while \\output is active)', r'\1', msg)
         return msg
 
     def __errmessage(self):
@@ -1074,7 +1092,7 @@ class LaTeXFilter:
         # always followed by a call to error, which prints a period,
         # and a newline...
         msg = self.__consume_line(unwrap=True)[1:].strip()
-        is_fatal_error = (msg == b'Emergency stop.')
+        is_fatal_error = (msg == 'Emergency stop.')
         msg = self.__simplify_message(msg)
         # ... and then calls show_context, which prints the input
         # stack as pairs of lines giving the context.  These context
@@ -1089,14 +1107,14 @@ class LaTeXFilter:
         found_context = False
         stack = []
         while self.__avail:
-            m1 = self.__lookingatre(br'<([a-z ]+|\*|read [^ >]*)> |\\.*->')
-            m2 = self.__lookingatre(b'l\.[0-9]+ ')
+            m1 = self.__lookingatre(r'<([a-z ]+|\*|read [^ >]*)> |\\.*->')
+            m2 = self.__lookingatre('l\.[0-9]+ ')
             if m1:
                 found_context = True
                 stack.append(self.__consume_line())
             elif m2:
                 found_context = True
-                info, rest = self.__consume_line().split(b' ', 1)
+                info, rest = self.__consume_line().split(' ', 1)
                 lineno = int(info[2:])
                 stack.append(rest)
             elif found_context:
@@ -1105,19 +1123,19 @@ class LaTeXFilter:
             # If we haven't found the context, skip the line.  If we
             # have found the context, skip the second context line.
             self.__skip_line()
-        stack_msg = b''
+        stack_msg = ''
         for i, trace in enumerate(stack):
-            stack_msg += ((b'\n      at ' if i == 0 else b'\n    from ') +
+            stack_msg += (('\n      at ' if i == 0 else '\n    from ') +
                           trace.strip())
 
         if is_fatal_error:
             # fatal_error always prints one additional line of message
             info = self.__consume_line().strip()
-            if info.startswith(b'*** '):
+            if info.startswith('*** '):
                 info = info[4:]
-            msg += b': '  + info.lstrip(b'(').rstrip(b')')
+            msg += ': '  + info.lstrip('(').rstrip(')')
 
-        self.__message('error', lineno, (msg + stack_msg).decode())
+        self.__message('error', lineno, msg + stack_msg)
         self.__fatal_error = True
 
     def __pdftex_fail(self):
@@ -1126,14 +1144,14 @@ class LaTeXFilter:
         # context.
         msg = self.__consume_line(unwrap=True)[1:].strip()
         msg = self.__simplify_message(msg)
-        self.__message('error', None, msg.decode())
+        self.__message('error', None, msg)
 
     def __runaway(self):
         # Procedure runaway.  Prints "\nRunaway ...\n" possibly
         # followed by token list (user text).  Always followed by a
         # call to print_err, so skip lines until we see the print_err.
         self.__skip_line()      # Skip "Runaway ...\n"
-        if not self.__lookingat(b'! ') and self.__avail:
+        if not self.__lookingat('! ') and self.__avail:
             # Skip token list, which is limited to one line
             self.__skip_line()
 
@@ -1147,13 +1165,13 @@ class LaTeXFilter:
         # but it sure makes our lives harder.
         origpos = self.__pos
         msg = self.__consume_line()
-        m = re.search(br' in (?:paragraph|alignment) at lines ([0-9]+)--([0-9]+)', msg) or \
-            re.search(br' detected at line ([0-9]+)', msg)
+        m = re.search(r' in (?:paragraph|alignment) at lines ([0-9]+)--([0-9]+)', msg) or \
+            re.search(r' detected at line ([0-9]+)', msg)
         if m:
             lineno = int(m.group(1))
             msg = msg[:m.start()]
         else:
-            m = re.search(br' while \\output is active', msg)
+            m = re.search(r' while \\output is active', msg)
             if m:
                 lineno = None
                 msg = msg[:m.end()]
@@ -1163,17 +1181,17 @@ class LaTeXFilter:
                 return
         # Back up to the end of the known message text
         self.__pos = origpos + m.end()
-        if self.__lookingat(b'\n'):
+        if self.__lookingat('\n'):
             # We have a newline, so consume it and look for the
             # offending text.
             self.__pos += 1
             # If there is offending text, it will start with a font
             # name, which will start with a \.
-            if b'hbox' in msg and self.__lookingat(b'\\'):
+            if 'hbox' in msg and self.__lookingat('\\'):
                 self.__consume_line(unwrap=True)
         msg = self.__simplify_message(msg)
-        cls = msg.decode().split(None, 1)[0].lower()
-        self.__message('warning', lineno, msg.decode(), cls=cls)
+        cls = msg.split(None, 1)[0].lower()
+        self.__message('warning', lineno, msg, cls=cls)
 
     def __generic_warning(self):
         # Warnings produced by LaTeX's \GenericWarning (which is
@@ -1181,14 +1199,14 @@ class LaTeXFilter:
         # warnings produced by pdftex_warn, and other random warnings.
         msg, cls = self.__generic_info()
         # Most warnings include an input line emitted by \on@line
-        m = re.search(b' on input line ([0-9]+)', msg)
+        m = re.search(' on input line ([0-9]+)', msg)
         if m:
             lineno = int(m.group(1))
             msg = msg[:m.start()]
         else:
             lineno = None
         msg = self.__simplify_message(msg)
-        self.__message('warning', lineno, msg.decode(), cls=cls)
+        self.__message('warning', lineno, msg, cls=cls)
 
     def __generic_info(self):
         # Messages produced by LaTeX's \Generic{Error,Warning,Info}
@@ -1196,15 +1214,15 @@ class LaTeXFilter:
         msg = self.__consume_line(unwrap=True).strip()
         # Package and class messages are continued with lines
         # containing '(package name)            '
-        pkg_name = msg.split(b' ', 2)[1]
-        prefix = b'(' + pkg_name + b')            '
+        pkg_name = msg.split(' ', 2)[1]
+        prefix = '(' + pkg_name + ')            '
         while self.__lookingat(prefix):
             # Collect extra lines.  It's important that we keep these
             # because they may contain context information like line
             # numbers.
             extra = self.__consume_line(unwrap=True)
-            msg += b' ' + extra[len(prefix):].strip()
-        return msg, pkg_name.decode().lower()
+            msg += ' ' + extra[len(prefix):].strip()
+        return msg, pkg_name.lower()
 
 ##################################################################
 # BibTeX task

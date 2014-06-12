@@ -1,0 +1,18 @@
+% -*- coding: latin-1 -*-
+% Test round-tripping of TeX's messages
+
+\documentclass{article}
+
+\begin{document}
+
+X
+
+\errmessage{Funny character ahead¡}
+
+\end{document}
+
+%% status: 1
+
+%% output:
+%% T-roundtrip.tex:10: error: Funny character ahead¡
+%%       at \errmessage{Funny character ahead¡}
