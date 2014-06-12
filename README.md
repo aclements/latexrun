@@ -122,9 +122,6 @@ pdfTeX" and are not logged and therefore often not reported.
 Tasks
 =====
 
-* Use `errors='surrogateescape'` (or maybe latin1 encoding) instead of
-  bytes in the filter code.
-
 * Solve the problem of missing input files.  LaTeX doesn't record
   inputs that it couldn't read, so we don't know about them even
   though they affect the computation (often seriously!).  We can

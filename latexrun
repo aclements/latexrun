@@ -1262,7 +1262,7 @@ class BibTeX(Task):
         stack = stack + (auxname,)
 
         try:
-            aux_data = open(auxname).read()
+            aux_data = open(auxname, errors='surrogateescape').read()
         except FileNotFoundError:
             # The aux file may not exist if latex aborted
             return False
@@ -1341,10 +1341,10 @@ class BibTeX(Task):
         except OSError as e:
             raise TaskError('failed to execute bibtex task: ' + str(e)) from e
 
-        inputs, auxnames = self.__parse_inputs(stdout.decode(), cwd, env)
+        inputs, auxnames = self.__parse_inputs(stdout, cwd, env)
         if not inputs and not auxnames:
             # BibTeX failed catastrophically.
-            print(stdout.decode(), file=sys.stderr)
+            print(stdout, file=sys.stderr)
             raise TaskError('failed to execute bibtex task')
 
         # Register environment variable inputs
@@ -1364,18 +1364,20 @@ class BibTeX(Task):
 
     def __feed_terminal(self, stdout):
         with Progress('bibtex') as progress:
-            buf, linebuf = [], b''
+            buf, linebuf = [], ''
             while True:
                 data = os.read(stdout.fileno(), 4096)
                 if not data:
                     break
+                # See "A note about encoding" above
+                data = data.decode('ascii', errors='surrogateescape')
                 buf.append(data)
                 linebuf += data
-                while b'\n' in linebuf:
-                    line, _, linebuf = linebuf.partition(b'\n')
-                    if line.startswith(b'Database file'):
-                        progress.update(line.split(b': ', 1)[1].decode())
-        return b''.join(buf)
+                while '\n' in linebuf:
+                    line, _, linebuf = linebuf.partition('\n')
+                    if line.startswith('Database file'):
+                        progress.update(line.split(': ', 1)[1])
+        return ''.join(buf)
 
     def __parse_inputs(self, log, cwd, env):
         # BibTeX conveniently logs every file that it opens, and its
@@ -1415,7 +1417,7 @@ class BibTeX(Task):
             return 0
 
         # Parse and pretty-print the log
-        log = open(extra['outbase'] + '.blg', 'rb').read()
+        log = open(extra['outbase'] + '.blg', 'rt').read()
         inputs = extra['inputs']
         for msg in BibTeXFilter(log, inputs).get_messages():
             print(msg, file=sys.stderr)
@@ -1434,7 +1436,7 @@ class BibTeXFilter:
 
         self.__messages = []
 
-        prev_line = b''
+        prev_line = ''
         for line in data.splitlines():
             msg = self.__process_line(prev_line, line)
             if msg is not None:
@@ -1471,55 +1473,50 @@ class BibTeXFilter:
         # bib_err_print/bib_err/
         # bib_warn_print/bib_warn/
         # bib_one_of_two_expected_err/macro_name_warning/
-        if match(b'(.*?)---?line ([0-9]+) of file (.*)'):
+        if match('(.*?)---?line ([0-9]+) of file (.*)'):
             # Sometimes the real error is printed on the previous line
-            typ, msg = self.__canonicalize((m.group(1) or prev_line).decode())
-            return (typ, m.group(3).decode(), int(m.group(2)), msg)
+            typ, msg = self.__canonicalize(m.group(1) or prev_line)
+            return (typ, m.group(3), int(m.group(2)), msg)
 
         # overflow/print_overflow
-        if match(b'Sorry---you\'ve exceeded BibTeX\'s (.*)'):
-            return ('error', None, None,
-                    'capacity exceeded: ' + m.group(1).decode())
+        if match('Sorry---you\'ve exceeded BibTeX\'s (.*)'):
+            return ('error', None, None, 'capacity exceeded: ' + m.group(1))
         # confusion/print_confusion
-        if match(b'(.*)---this can\'t happen$'):
-            return ('error', None, None,
-                    'internal error: ' + m.group(1).decode())
+        if match('(.*)---this can\'t happen$'):
+            return ('error', None, None, 'internal error: ' + m.group(1))
         # aux_end_err
-        if match(b'I found (no .*)---while reading file (.*)'):
-            return ('error', m.group(2).decode(), None,
-                    m.group(1).decode())
+        if match('I found (no .*)---while reading file (.*)'):
+            return ('error', m.group(2), None, m.group(1))
         # bad_cross_reference_print/
         # nonexistent_cross_reference_error/
         # @<Complain about a nested cross reference@>
         #
         # This is split across two lines.  Match the second.
-        if match(b'^refers to entry "'):
-            typ, msg = self.__canonicalize(
-                prev_line.decode() + ' ' + line.decode())
+        if match('^refers to entry "'):
+            typ, msg = self.__canonicalize(prev_line + ' ' + line)
             msg = re.sub('^a (bad cross reference)', '\\1', msg)
             # Try to give this key a location
             filename = lineno = None
-            m2 = re.search(br'--entry "[^"]"', prev_line)
+            m2 = re.search(r'--entry "[^"]"', prev_line)
             if m2:
                 filename, lineno = self.__find_key(m2.group(1))
             return (typ, filename, lineno, msg)
         # print_missing_entry
-        if match(b'Warning--I didn\'t find a database entry for (".*")'):
+        if match('Warning--I didn\'t find a database entry for (".*")'):
             return ('warning', None, None,
-                    'no database entry for ' + m.group(1).decode())
+                    'no database entry for ' + m.group(1))
         # x_warning
-        if match(b'Warning--(.*)'):
+        if match('Warning--(.*)'):
             # Most formats give warnings about "something in <key>".
             # Try to match it up.
             filename = lineno = None
-            m2 = re.search(br' in ([^, \t\n]+)\b', line)
+            m2 = re.search(r' in ([^, \t\n]+)\b', line)
             if m2:
                 filename, lineno = self.__find_key(m2.group(1))
-            return ('warning', filename, lineno, m.group(1).decode())
+            return ('warning', filename, lineno, m.group(1))
         # @<Clean up and leave@>
-        if match(b'Aborted at line ([0-9]+) of file (.*)'):
-            return ('info', m.group(2).decode(), int(m.group(1)),
-                    'aborted')
+        if match('Aborted at line ([0-9]+) of file (.*)'):
+            return ('info', m.group(2), int(m.group(1)), 'aborted')
 
     def __canonicalize(self, msg):
         if msg.startswith('Warning'):
@@ -1536,7 +1533,7 @@ class BibTeXFilter:
             p = BibTeXKeyParser()
             self.__key_locs = {}
             for filename in self.__inputs:
-                data = open(filename, 'rb').read()
+                data = open(filename, 'rt', errors='surrogateescape').read()
                 for pkey, lineno in p.parse(data):
                     self.__key_locs.setdefault(pkey, (filename, lineno))
         return self.__key_locs.get(key, (None, None))
@@ -1545,22 +1542,22 @@ class BibTeXKeyParser:
     """Just enough of a BibTeX parser to find keys."""
 
     def parse(self, data):
-        IDENT_RE = b'(?![0-9])([^\x00-\x20\x80-\xff \t"#%\'(),={}]+)'
+        IDENT_RE = '(?![0-9])([^\x00-\x20\x80-\xff \t"#%\'(),={}]+)'
         self.__pos, self.__data = 0, data
         # Find the next entry
-        while self.__consume(b'[^@]*@[ \t\n]*'):
+        while self.__consume('[^@]*@[ \t\n]*'):
             # What type of entry?
-            if not self.__consume(IDENT_RE + b'[ \t\n]*'):
+            if not self.__consume(IDENT_RE + '[ \t\n]*'):
                 continue
             typ = self.__m.group(1)
-            if typ == b'comment':
+            if typ == 'comment':
                 continue
             start = self.__pos
-            if not self.__consume(b'([{(])[ \t\n]*'):
+            if not self.__consume('([{(])[ \t\n]*'):
                 continue
-            closing, key_re = {b'{' : (b'}', b'([^, \t\n}]*)'),
-                               b'(' : (b')', b'([^, \t\n]*)')}[self.__m.group(1)]
-            if typ not in (b'preamble', b'string'):
+            closing, key_re = {'{' : ('}', '([^, \t\n}]*)'),
+                               '(' : (')', '([^, \t\n]*)')}[self.__m.group(1)]
+            if typ not in ('preamble', 'string'):
                 # Regular entry; get key
                 if self.__consume(key_re):
                     yield self.__m.group(1), self.__lineno()
@@ -1575,12 +1572,12 @@ class BibTeXKeyParser:
         return self.__m
 
     def __lineno(self):
-        return self.__data.count(b'\n', 0, self.__pos) + 1
+        return self.__data.count('\n', 0, self.__pos) + 1
 
     def __balanced(self, closing):
         self.__pos += 1
         level = 0
-        skip = re.compile(b'[{}' + closing + b']')
+        skip = re.compile('[{}' + closing + ']')
         while True:
             m = skip.search(self.__data, self.__pos)
             if not m:
@@ -1589,9 +1586,9 @@ class BibTeXKeyParser:
             ch = m.group(0)
             if level == 0 and ch == closing:
                 break
-            elif ch == b'{':
+            elif ch == '{':
                 level += 1
-            elif ch == b'}':
+            elif ch == '}':
                 level -= 1
 
 class Kpathsea:
