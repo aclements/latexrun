@@ -72,6 +72,73 @@ only considers targets that depend on `paper.pdf` out of date if
 latexrun actually updates `paper.pdf`.
 
 
+Comparison with other tools
+===========================
+
+Several other tools achieve the same basic goal as latexrun: to
+automatically run LaTeX and BibTeX the right number of times.
+
+Rubber
+------
+
+Rubber is a fantastic tool that inspired many features of latexrun.
+Rubber showed that it's possible to fix many of LaTeX's eccentricities
+like iterative builds and unreadable logs.  latexrun is a response to
+Rubber: it attempts to capture its best features while adhering to the
+Unix philosophy of "do one thing well" and further modernizing the
+LaTeX build process.
+
+latexrun has more modern defaults and TeX support than Rubber.  In
+addition to pdfTeX, it supports LuaTeX and XeTeX.  It defaults to PDF
+output, rather than DVI output.  It defaults to reporting important
+warnings like unknown references, rather than suppressing all
+warnings.  It defaults to putting all intermediate output in a
+directory, rather than inheriting LaTeX's default behavior of filling
+your source tree with intermediate files.  It also has features that
+interact better with more modern tools, like atomic commit for PDF
+viewers that use file system notification to automatically refresh.
+
+latexrun is simple.  It's intentionally a single, self-contained, and
+reasonably short Python script that you can drop in next to your LaTeX
+sources.  Rubber is modular, which is admirable but leads to higher
+setup cost.
+
+latexrun has robust post-execution dependency analysis, while Rubber
+works by parsing your TeX code.  TeX is famously the only thing that
+can correctly parse TeX code and as a result Rubber's dependency
+analysis is fragile and in occasional and hard-to-predict situations
+requires the user to explicitly declare dependencies, command aliases,
+or extra files to "watch".
+
+latexrun fits in to your toolchain, while Rubber tries to replace it.
+Rubber goes beyond building LaTeX code with "features" like automatic
+graphics conversion based on a weighted shortest-path walk through
+known converters.  This makes its build process unpredictable and
+means that other build tools like `make` integrate poorly with it.
+latexrun prefers explicit over implicit, and tries to make latex act
+like a modern tool in your toolchain to enable other tools to do what
+*they* do best.
+
+latexmk
+-------
+
+latexmk is a venerable LaTeX wrapper that has amassed an impressive
+array of options, flags, and features.  It includes many features that
+latexrun leaves to other tools---like starting viewers, printing, and
+conversion to PDF from DVI and PostScript---or simply omits---like
+adding banners and automatically invoking `make` for missing files.
+
+Like latexrun, latexmk can use the "file recorder" feature of modern
+TeX engines to compute precise file dependencies.  However, latexrun
+also tracks non-file dependencies like environment variables and knows
+how to track filtered file contents (like only the lines that actually
+matter to BibTeX).
+
+latexmk simply passes through LaTeX's log spew, while latexrun
+extracts errors and warnings and displays them in a friendly, modern
+format.
+
+
 How latexrun works
 ==================
 
