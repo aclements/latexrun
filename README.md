@@ -39,12 +39,13 @@ Features
 
 
 Non-features
-============
+------------
 
 Kitchen sink not included.  latexrun is not a build system.  It will
 not convert your graphics behind your back.  It will not continuously
-monitor your files for changes.  latexrun is designed to be *part* of
-your build system and let other tools do what they do well.
+monitor your files for changes.  It will not start your previewer for
+you.  latexrun is designed to be *part* of your build system and let
+other tools do what they do well.
 
 
 Integrating with make
