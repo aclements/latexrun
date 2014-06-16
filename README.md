@@ -113,7 +113,7 @@ Known bugs
 
 latexrun doesn't always track files that *don't* exist, so it may not
 re-run LaTeX after a file gets created.  Currently the best solution
-is to latexrun --clean-all, though this it obviously sub-optimal.
+is to `latexrun --clean-all`, though this it obviously sub-optimal.
 
 Command-line usage errors when calling latex appear before "This is
 pdfTeX" and are not logged and therefore often not reported.
