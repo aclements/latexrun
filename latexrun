@@ -1537,9 +1537,11 @@ class BibTeXFilter:
             # Most formats give warnings about "something in <key>".
             # Try to match it up.
             filename = lineno = None
-            m2 = re.search(r' in ([^, \t\n]+)\b', line)
-            if m2:
-                filename, lineno = self.__find_key(m2.group(1))
+            for m2 in reversed(list(re.finditer(r' in ([^, \t\n]+)\b', line))):
+                if m2:
+                    filename, lineno = self.__find_key(m2.group(1))
+                    if filename:
+                        break
             return ('warning', filename, lineno, m.group(1))
         # @<Clean up and leave@>
         if match('Aborted at line ([0-9]+) of file (.*)'):
