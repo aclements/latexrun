@@ -367,12 +367,22 @@ class Message(collections.namedtuple(
 # Task framework
 #
 
+terminate_task_loop = False
+
 def run_tasks(tasks, max_iterations):
     """Execute tasks in round-robin order until all are stable.
 
-    Return True if fixed-point is reached within max_iterations
-    iterations.
+    This will also exit if terminate_task_loop is true.  Tasks may use
+    this to terminate after a fatal error (even if that fatal error
+    doesn't necessarily indicate stability; as long as re-running the
+    task will never eliminate the fatal error).
+
+    Return True if fixed-point is reached or terminate_task_loop is
+    set within max_iterations iterations.
     """
+
+    global terminate_task_loop
+    terminate_task_loop = False
 
     nstable = 0
     for iteration in range(max_iterations):
@@ -385,6 +395,9 @@ def run_tasks(tasks, max_iterations):
             else:
                 task.run()
                 nstable = 0
+                if terminate_task_loop:
+                    debug('terminate_task_loop set')
+                    return True
     debug('fixed-point not reached')
     return False
 
@@ -607,7 +620,7 @@ class LaTeX(Task):
                                  stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT)
-            stdout = self.__feed_terminal(p.stdout)
+            stdout, has_errors = self.__feed_terminal(p.stdout)
             status = p.wait()
         except OSError as e:
             raise TaskError('failed to execute latex task: ' + str(e)) from e
@@ -634,7 +647,16 @@ class LaTeX(Task):
         for path in inputs:
             self._input('file', path)
 
-        self.__create_outdirs(stdout)
+        if not self.__create_outdirs(stdout) and has_errors:
+            # LaTeX reported unrecoverable errors (other than output
+            # directory errors, which we just fixed).  We could
+            # continue to stabilize the document, which may change
+            # some of the other problems reported (but not the
+            # unrecoverable errors), or we can just abort now and get
+            # back to the user quickly with the major errors.  We opt
+            # for the latter.
+            global terminate_task_loop
+            terminate_task_loop = True
 
         return RunResult(outputs,
                          {'jobname': jobname, 'outname': outname,
@@ -665,7 +687,11 @@ class LaTeX(Task):
                     progress.update('>' * len(file_stack) + ' ' + tos)
                 else:
                     progress.update('')
-            return ''.join(buf)
+
+            # Were there unrecoverable errors?
+            has_errors = any(msg.typ == 'error' for msg in filt.get_messages())
+
+            return ''.join(buf), has_errors
 
     def __parse_jobname(self, stdout):
         """Extract the job name and output name from latex's output.
@@ -761,6 +787,7 @@ class LaTeX(Task):
                     raise TaskError('failed to create output subdirectory: ' +
                                     str(e)) from e
                 self._input('unstable')
+                return True
 
     def report(self):
         extra = self._get_result_extra()

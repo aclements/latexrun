@@ -228,10 +228,3 @@ Tasks
   output, like from make, by acting as a pass-through until the "This
   is (pdf)TeX" line up to the "Transcript written on" line (or
   anything else that can end TeX's log output).
-
-* Often TeX recovers too well from fatal errors like undefined control
-  sequences.  If the document needs, say, three iterations, it will
-  still build for three iterations and only *then* will latexrun
-  report the fatal error and non-zero exit status.  If a non-zero exit
-  status is stable, we could stop right away, but I don't know if it
-  is.
