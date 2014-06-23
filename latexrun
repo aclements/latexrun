@@ -1472,7 +1472,10 @@ class BibTeXFilter:
 
     def get_messages(self):
         """Return a list of warning and error Messages."""
-        return self.__messages
+        # BibTeX reports most errors in no particular order.  Sort by
+        # file and line.
+        return sorted(self.__messages,
+                      key=lambda msg: (msg.filename or '', msg.lineno or 0))
 
     def __process_line(self, prev_line, line):
         m = None
