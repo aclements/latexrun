@@ -1434,6 +1434,15 @@ class BibTeX(Task):
                     filename = kpathsea.find_file(filename, 'bst', cwd, env)
                 elif m.group(2):
                     filename = kpathsea.find_file(filename, 'bib', cwd, env)
+
+                # If this path is relative to the source directory,
+                # clean it up for error reporting and portability of
+                # the dependency DB
+                if filename.startswith('/'):
+                    relname = os.path.relpath(filename)
+                    if '../' not in relname:
+                        filename = relname
+
                 inputs.append(filename)
 
         return inputs, auxnames
