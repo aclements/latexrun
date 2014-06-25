@@ -1127,14 +1127,15 @@ class LaTeXFilter:
         # will start with either "<something> " if the context is a
         # token list, "<*> " for terminal input (or command line),
         # "<read ...>" for stream reads, something like "\macroname
-        # #1->" for macros, or "l.[0-9]+ " if it's a file.  This is
-        # followed by the errant input with a line break where the
-        # error occurred.
+        # #1->" for macros (though everything after \macroname is
+        # subject to being elided as "..."), or "l.[0-9]+ " if it's a
+        # file.  This is followed by the errant input with a line
+        # break where the error occurred.
         lineno = None
         found_context = False
         stack = []
         while self.__avail:
-            m1 = self.__lookingatre(r'<([a-z ]+|\*|read [^ >]*)> |\\.*->')
+            m1 = self.__lookingatre(r'<([a-z ]+|\*|read [^ >]*)> |\\.*(->|...)')
             m2 = self.__lookingatre('l\.[0-9]+ ')
             if m1:
                 found_context = True
