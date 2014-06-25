@@ -1139,22 +1139,32 @@ class LaTeXFilter:
             m2 = self.__lookingatre('l\.[0-9]+ ')
             if m1:
                 found_context = True
-                stack.append(self.__consume_line())
+                pre = self.__consume_line().rstrip('\n')
+                stack.append(pre)
             elif m2:
                 found_context = True
-                info, rest = self.__consume_line().split(' ', 1)
+                pre = self.__consume_line().rstrip('\n')
+                info, rest = pre.split(' ', 1)
                 lineno = int(info[2:])
                 stack.append(rest)
             elif found_context:
                 # Done with context
                 break
-            # If we haven't found the context, skip the line.  If we
-            # have found the context, skip the second context line.
-            self.__skip_line()
+            if found_context:
+                # Consume the second context line
+                post = self.__consume_line().rstrip('\n')
+                if post[:len(pre)].isspace() and not post.isspace():
+                    stack.append(len(stack[-1]))
+                    stack[-2] += post[len(pre):]
+            else:
+                # If we haven't found the context, skip the line.
+                self.__skip_line()
         stack_msg = ''
         for i, trace in enumerate(stack):
-            stack_msg += (('\n      at ' if i == 0 else '\n    from ') +
-                          trace.strip())
+            stack_msg += ('\n         ' + (' ' * trace) + '^'
+                          if isinstance(trace, int) else
+                          '\n      at ' + trace.rstrip() if i == 0 else
+                          '\n    from ' + trace.rstrip())
 
         if is_fatal_error:
             # fatal_error always prints one additional line of message
