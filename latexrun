@@ -980,7 +980,10 @@ class LaTeXFilter:
             # (max_print_line).  If requested, unwrap it.  There's
             # simply no way to do this perfectly, since there could be
             # a line that happens to be 79 columns.
-            while self.__lend - self.__lstart == 80:
+            #
+            # We check for >=80 because a bug in LuaTeX causes it to
+            # wrap at 80 columns instead of 79 (LuaTeX #900).
+            while self.__lend - self.__lstart >= 80:
                 if self.TRACE: print('<{}> wrapping'.format(self.__pos))
                 self.__ensure_line()
                 data = data[:-1] + self.__data[self.__pos:self.__lend]
@@ -1106,7 +1109,8 @@ class LaTeXFilter:
         name = ''
         # File names may wrap, but if they do, TeX will always print a
         # newline before the open paren
-        while first or (initcol == 1 and self.__col == 79):
+        while first or (initcol == 1 and self.__lookingat('\n')
+                        and self.__col >= 79):
             if not first:
                 self.__pos += 1
             m = self.__lookingatre(r'[^(){} \n]*')
