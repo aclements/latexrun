@@ -724,7 +724,8 @@ class LaTeX(Task):
         if os.path.basename(jobname) == jobname and \
            os.path.exists(os.path.join(self.__obj_dir, jobname + '.log')):
             jobname = os.path.join(self.__obj_dir, jobname)
-            outname = os.path.join(self.__obj_dir, outname)
+            if outname is not None:
+                outname = os.path.join(self.__obj_dir, outname)
 
         return jobname, outname
 
