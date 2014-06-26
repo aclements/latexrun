@@ -863,6 +863,8 @@ class LaTeXCommit(Task):
         return RunResult([commit], None)
 
 class LaTeXFilter:
+    TRACE = False               # Set to enable detailed parse tracing
+
     def __init__(self, nowarns=[]):
         self.__data = ''
         self.__restart_pos = 0
@@ -979,6 +981,7 @@ class LaTeXFilter:
             # simply no way to do this perfectly, since there could be
             # a line that happens to be 79 columns.
             while self.__lend - self.__lstart == 80:
+                if self.TRACE: print('<{}> wrapping'.format(self.__pos))
                 self.__ensure_line()
                 data = data[:-1] + self.__data[self.__pos:self.__lend]
                 self.__pos = self.__lend
@@ -1071,8 +1074,15 @@ class LaTeXFilter:
             self.__file_stack.append(filename)
             if first:
                 self.__first_file = filename
+            if self.TRACE:
+                print('<{}>{}enter {}'.format(
+                    m.start(), ' '*len(self.__file_stack), filename))
         elif ch == ')':
             if len(self.__file_stack):
+                if self.TRACE:
+                    print('<{}>{}exit {}'.format(
+                        m.start(), ' '*len(self.__file_stack),
+                        self.__file_stack[-1]))
                 self.__file_stack.pop()
             else:
                 self.__message('warning', None,
