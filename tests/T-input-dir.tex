@@ -1,0 +1,16 @@
+% This causes pdflatex to claim it's inputting the output directory
+
+\documentclass{article}
+\usepackage{graphicx}
+
+\begin{document}
+
+\includegraphics\relax
+
+\end{document}
+
+%% status: 1
+
+%% output:
+%% T-input-dir.tex:8: error: [pdftex.def] File `\relax .png' not found
+%%       at \includegraphics\relax

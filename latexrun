@@ -262,7 +262,7 @@ class HashCache:
                     h.update(block)
                 self.__cache[key] = h.hexdigest()
                 return self.__cache[key]
-        except FileNotFoundError:
+        except (FileNotFoundError, IsADirectoryError):
             return None
 
     def clobber(self, filename):
