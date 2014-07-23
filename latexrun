@@ -541,7 +541,11 @@ class Task:
         for f in result.output_filenames:
             self.__db.add_clean(f)
 
-        self.__db.commit()
+        try:
+            self.__db.commit()
+        except OSError as e:
+            raise TaskError('error committing control database {}: {}'.format(
+                getattr(e, 'filename', '<unknown path>'), e)) from e
 
     def __make_summary(self, deps, run_result):
         """Construct a new task summary."""
