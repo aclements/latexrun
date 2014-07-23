@@ -648,7 +648,8 @@ class LaTeX(Task):
         try:
             os.makedirs(self.__obj_dir, exist_ok=True)
         except OSError as e:
-            raise TaskError('failed to create %s: ' % self.__obj_dir + str(e))
+            raise TaskError('failed to create %s: ' % self.__obj_dir + str(e)) \
+                from e
         try:
             verbose_cmd(args)
             p = subprocess.Popen(args,
@@ -893,7 +894,7 @@ class LaTeXCommit(Task):
                 shutil.copy(outname, outname + '~')
                 os.rename(outname + '~', commit)
         except OSError as e:
-            raise TaskError('error committing latex output: {}'.format(e))
+            raise TaskError('error committing latex output: {}'.format(e)) from e
         self._input('file', outname)
         return RunResult([commit], None)
 
