@@ -924,7 +924,7 @@ class LaTeXFilter:
                     for cls, count in self.__suppress.items() if count]
             if msgs:
                 self.__message('warning', None,
-                               '%s not shown (use -W to show them)' %
+                               '%s not shown (use -Wall to show them)' %
                                ', '.join(msgs), filename=self.__first_file)
 
         if eof and len(self.__file_stack) and not self.__fatal_error:
