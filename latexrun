@@ -33,11 +33,16 @@ import shutil
 import curses
 import filecmp
 import io
+import traceback
 
 def debug(string, *args):
     if debug.enabled:
         print(string.format(*args), file=sys.stderr)
 debug.enabled = False
+
+def debug_exc():
+    if debug.enabled:
+        traceback.print_exc()
 
 def main():
     # Parse command-line
@@ -122,6 +127,7 @@ def main():
         print('error opening {}: {}'.format(e.filename if hasattr(e, 'filename')
                                             else dbpath, e),
               file=sys.stderr)
+        debug_exc()
         sys.exit(1)
 
     # Clean
@@ -130,6 +136,7 @@ def main():
             db.do_clean(args.obj_dir)
         except OSError as e:
             print(e, file=sys.stderr)
+            debug_exc()
             sys.exit(1)
 
     # Build
@@ -155,6 +162,7 @@ def main():
             status = max(status, 1)
     except TaskError as e:
         print(str(e), file=sys.stderr)
+        debug_exc()
         status = 1
     sys.exit(status)
 
