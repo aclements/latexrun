@@ -71,8 +71,8 @@ def main():
         '-W', metavar='(no-)CLASS',
         action=ArgParserWarnAction, dest='nowarns', default=set(['underfull']),
         help='Enable/disable warning from CLASS, which can be any package name, '
-        'LaTeX warning class (e.g., font), or bad box type '
-        '(underfull, overfull, loose, tight)')
+        'LaTeX warning class (e.g., font), bad box type '
+        '(underfull, overfull, loose, tight), or "all"')
     arg_parser.add_argument(
         '-O', metavar='DIR', dest='obj_dir', default='latex.out',
         help='Directory for intermediate files (default: %(default)s)')
@@ -168,7 +168,9 @@ def arg_parser_shlex(string):
 class ArgParserWarnAction(argparse.Action):
     def __call__(self, parser, namespace, value, option_string=None):
         nowarn = getattr(namespace, self.dest)
-        if value.startswith('no-'):
+        if value == 'all':
+            nowarn.clear()
+        elif value.startswith('no-'):
             nowarn.add(value[3:])
         else:
             nowarn.discard(value)
