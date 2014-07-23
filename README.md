@@ -1,9 +1,8 @@
 See LaTeX run.  Run latexrun.
 
 latexrun fits LaTeX into a modern build environment.  It hides LaTeX's
-circular dependencies, transforms errors into a standard and
-user-friendly format, and generally enables other tools to do what
-they do best.
+circular dependencies, surfaces errors in a standard and user-friendly
+format, and generally enables other tools to do what they do best.
 
 
 Features
@@ -16,7 +15,7 @@ Features
   from the final run are shown, making it act like a standard,
   single-run build task.
 
-* Visible error messages and warnings.  LaTeX and related tools bury
+* Surfaces error messages and warnings.  LaTeX and related tools bury
   errors and useful warnings in vast wastelands of output noise.
   latexrun parses this spew and prints only the messages that matter,
   in a format understood by modern tools.  latexrun even figures out
@@ -180,8 +179,8 @@ not change over one iteration, then latexrun can guarantee that the
 output also will not change, and stop.
 
 
-Known bugs
-==========
+Known issues
+============
 
 latexrun doesn't always track files that *don't* exist, so it may not
 re-run LaTeX after a file gets created.  Currently the best solution
@@ -191,7 +190,7 @@ Command-line usage errors when calling latex appear before "This is
 pdfTeX" and are not logged and therefore often not reported.
 
 
-Tasks
+To do
 =====
 
 * Solve the problem of missing input files.  LaTeX doesn't record
