@@ -127,7 +127,7 @@ def main():
     # Clean
     if args.clean_all:
         try:
-            db.do_clean()
+            db.do_clean(args.obj_dir)
         except OSError as e:
             print(e, file=sys.stderr)
             sys.exit(1)
@@ -236,8 +236,12 @@ class DB:
         """
         self.__val.setdefault('clean', {})[filename] = hash_cache.get(filename)
 
-    def do_clean(self):
-        """Remove output files and delete database."""
+    def do_clean(self, obj_dir=None):
+        """Remove output files and delete database.
+
+        If obj_dir is not None and it is empty after all files are
+        removed, it will also be removed.
+        """
 
         for f, want_hash in self.__val.get('clean', {}).items():
             have_hash = hash_cache.get(f)
@@ -254,6 +258,11 @@ class DB:
             os.unlink(self.__filename)
         except FileNotFoundError:
             pass
+        if obj_dir is not None:
+            try:
+                os.rmdir(obj_dir)
+            except OSError:
+                pass
 
 class HashCache:
     """Cache of file hashes.
