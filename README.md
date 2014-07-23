@@ -37,6 +37,10 @@ Features
 * Easy {.git,.hg,svn:}ignore.  Just ignore `.latexrun.db` and
   `latex.out/`.  Done!
 
+* Self-contained.  latexrun is a single, self-contained Python script
+  that can be copied in to your source tree so your collaborators
+  don't have to install it.
+
 
 Non-features
 ------------
