@@ -80,7 +80,8 @@ def main():
         '(underfull, overfull, loose, tight), or "all"')
     arg_parser.add_argument(
         '-O', metavar='DIR', dest='obj_dir', default='latex.out',
-        help='Directory for intermediate files (default: %(default)s)')
+        help='Directory for intermediate files and control database '
+        '(default: %(default)s)')
     arg_parser.add_argument(
         '--verbose-cmds', action='store_true', default=False,
         help='Print commands as they are executed')
@@ -118,9 +119,11 @@ def main():
         errors='surrogateescape', line_buffering=sys.stderr.line_buffering)
 
     # Open control database.
-    # XXX Is there a better place to put this?  If I'm cleaning, I
-    # don't have a file name, so it can't be relative to that.
-    dbpath = '.latexrun.db'
+    dbpath = os.path.join(args.obj_dir, '.latexrun.db')
+    if not os.path.exists(dbpath) and os.path.exists('.latexrun.db'):
+        # The control database used to live in the source directory.
+        # Support this for backwards compatibility.
+        dbpath = '.latexrun.db'
     try:
         db = DB(dbpath)
     except (ValueError, OSError) as e:
@@ -220,6 +223,10 @@ class DB:
 
     def commit(self):
         debug('committing database')
+        # Make sure database directory exists
+        if os.path.dirname(self.__filename):
+            os.makedirs(os.path.dirname(self.__filename), exist_ok=True)
+        # Atomically commit database
         tmp_filename = self.__filename + '.tmp'
         with open(tmp_filename, 'w') as fp:
             json.dump(self.__val, fp, indent=2, separators=(',', ': '))

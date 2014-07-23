@@ -33,8 +33,7 @@ Features
   xref tables when it catches latex in the middle of writing out a
   PDF.
 
-* Easy {.git,.hg,svn:}ignore.  Just ignore `.latexrun.db` and
-  `latex.out/`.  Done!
+* Easy {.git,.hg,svn:}ignore.  Just ignore `latex.out/`.  Done!
 
 * Self-contained.  latexrun is a single, self-contained Python script
   that can be copied in to your source tree so your collaborators
