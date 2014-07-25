@@ -887,6 +887,9 @@ class LaTeX(Task):
         """Make some standard log messages more user-friendly."""
         have_undefined_reference = False
         for msg in msgs:
+            if msg.msg == '==> Fatal error occurred, no output PDF file produced!':
+                msg = msg._replace(typ='warning',
+                                   msg='Fatal error (no output file produced)')
             if msg.msg.startswith('[LaTeX] '):
                 # Strip unnecessary package name
                 msg = msg._replace(msg=msg.msg.split(' ', 1)[1])
@@ -1132,7 +1135,7 @@ class LaTeXFilter:
                 # Inform the user, since it can be confusing that they
                 # don't get any output file at all
                 self.__consume_line()
-                self.__message('warning', None, 'No pages (no output produced)')
+                self.__message('warning', None, 'No pages (no output file produced)')
                 return
             # Other things that are common and irrelevant
             if lookingatre(r'(Package|Class|LaTeX) (\w+ )?info: ', re.I):
