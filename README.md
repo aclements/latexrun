@@ -181,9 +181,12 @@ output also will not change, and stop.
 Known issues
 ============
 
-latexrun doesn't always track files that *don't* exist, so it may not
-re-run LaTeX after a file gets created.  Currently the best solution
-is to `latexrun --clean-all`, though this it obviously sub-optimal.
+When a missing file is silently ignored by latex (e.g., `\openin`,
+`\IfFileExists`), latexrun can't track that the *lack* of that file
+was important.  Hence, if a missing file is later created, latexrun
+may not re-run latex.  However, missing files that cause latex to
+abort (e.g., missing files in `\input`) as well as missing `\include`
+files (which do not cause aborts) are handled.
 
 Command-line usage errors when calling latex appear before "This is
 pdfTeX" and are not logged and therefore often not reported.
@@ -194,17 +197,9 @@ To do
 
 * Solve the problem of missing input files.  LaTeX doesn't record
   inputs that it couldn't read, so we don't know about them even
-  though they affect the computation (often seriously!).  We can
-  partially address this by getting the listing of the output
-  directory before running latex.  Once we know the jobname and such,
-  filter this listing down to files that start with the jobname,
-  remove a few others that are known not to be inputs like the output
-  file and the log file, and then record this *listing* as an input.
-  This isn't perfect, but it's a good approximation.  We could also
-  scan the log for "No file X.", which is printed by LaTeX's `\@input`
-  for things like aux and toc files and could potentially catch more
-  optional inputs.  Neither of these solutions solves the problem for
-  general user input files.
+  though they affect the computation (often seriously!).  Possible
+  solutions include ptrace, FUSE, and fanotify, but none of these are
+  portable or easily accessible from Python.
 
 * Provide a way to disable output filters for things that do their own
   output parsing (e.g., AUCTeX).

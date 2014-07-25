@@ -684,7 +684,7 @@ class LaTeX(Task):
                                  stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT)
-            stdout, has_errors = self.__feed_terminal(p.stdout)
+            stdout, has_errors, missing_includes = self.__feed_terminal(p.stdout)
             status = p.wait()
         except OSError as e:
             raise TaskError('failed to execute latex task: ' + str(e)) from e
@@ -710,6 +710,15 @@ class LaTeX(Task):
         # input hashes, even if they were clobbered.
         for path in inputs:
             self._input('file', path)
+
+        if missing_includes:
+            # Missing \includes are tricky.  Ideally we'd depend on
+            # the absence of some file, but in fact we'd have to
+            # depend on the failure of a whole kpathsea lookup.
+            # Rather than try to be clever, just mark this as an
+            # unknown input so we'll run at least once on the next
+            # invocation.
+            self._input('unknown_input')
 
         if not self.__create_outdirs(stdout) and has_errors:
             # LaTeX reported unrecoverable errors (other than output
@@ -760,7 +769,7 @@ class LaTeX(Task):
             # Were there unrecoverable errors?
             has_errors = any(msg.typ == 'error' for msg in filt.get_messages())
 
-            return ''.join(buf), has_errors
+            return ''.join(buf), has_errors, filt.has_missing_includes()
 
     def __parse_jobname(self, stdout):
         """Extract the job name and output name from latex's output.
@@ -942,6 +951,7 @@ class LaTeXFilter:
         self.__messages = []
         self.__first_file = None
         self.__fatal_error = False
+        self.__missing_includes = False
 
         self.__suppress = {cls: 0 for cls in nowarns}
 
@@ -993,6 +1003,10 @@ class LaTeXFilter:
         """
 
         return self.__file_stack
+
+    def has_missing_includes(self):
+        """Return True if the log reported missing \\include files."""
+        return self.__missing_includes
 
     def __save_restart_point(self):
         """Save the current state as a known-good restart point.
@@ -1093,6 +1107,7 @@ class LaTeXFilter:
                 self.__message('warning', None,
                                self.__simplify_message(
                                    self.__consume_line(unwrap=True).strip()))
+                self.__missing_includes = True
                 return
             if lookingatre('No pages of output\\.$', re.M):
                 # Inform the user, since it can be confusing that they
