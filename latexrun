@@ -875,12 +875,31 @@ class LaTeX(Task):
 
         # Parse the log
         logfile = open(extra['jobname'] + '.log', 'rt', errors='surrogateescape')
-        for msg in LaTeXFilter(self.__nowarns).feed(
-                logfile.read(), True).get_messages():
+        for msg in self.__clean_messages(
+                LaTeXFilter(self.__nowarns).feed(
+                    logfile.read(), True).get_messages()):
             print(msg, file=sys.stderr)
 
         # Return LaTeX's exit status
         return extra['status']
+
+    def __clean_messages(self, msgs):
+        """Make some standard log messages more user-friendly."""
+        have_undefined_reference = False
+        for msg in msgs:
+            if msg.msg.startswith('[LaTeX] '):
+                # Strip unnecessary package name
+                msg = msg._replace(msg=msg.msg.split(' ', 1)[1])
+            if re.match(r'Reference .* undefined', msg.msg):
+                have_undefined_reference = True
+            if have_undefined_reference and \
+               re.match(r'There were undefined references', msg.msg):
+                # LaTeX prints this at the end so the user knows it's
+                # worthwhile looking back at the log.  Since latexrun
+                # makes the earlier messages obvious, this is
+                # redundant.
+                continue
+            yield msg
 
     def get_tex_filename(self):
         return self.__tex_filename
