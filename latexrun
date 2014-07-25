@@ -721,6 +721,11 @@ class LaTeX(Task):
             # for the latter.
             global terminate_task_loop
             terminate_task_loop = True
+            # This error could depend on something we failed to track.
+            # It would be really confusing if we continued to report
+            # the error after the user fixed it, so be conservative
+            # and force a re-run next time.
+            self._input('unknown_input')
 
         return RunResult(outputs,
                          {'jobname': jobname, 'outname': outname,
