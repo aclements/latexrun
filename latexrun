@@ -34,6 +34,7 @@ import curses
 import filecmp
 import io
 import traceback
+import time
 
 def debug(string, *args):
     if debug.enabled:
@@ -414,6 +415,7 @@ class Message(collections.namedtuple(
 #
 
 terminate_task_loop = False
+start_time = time.time()
 
 def run_tasks(tasks, max_iterations):
     """Execute tasks in round-robin order until all are stable.
@@ -607,6 +609,17 @@ class Task:
     def _input_unstable(self):
         """Mark this run as unstable, regardless of other inputs."""
         return None
+
+    def _input_unknown_input(self):
+        """An unknown input that may change after latexrun exits.
+
+        This conservatively marks some unknown input that definitely
+        won't change while latexrun is running, but may change before
+        the user next runs latexrun.  This allows the task to
+        stabilize during this invocation, but will cause the task to
+        re-run on the next invocation.
+        """
+        return start_time
 
 class RunResult(collections.namedtuple(
         'RunResult', 'output_filenames extra')):
