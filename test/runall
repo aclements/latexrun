@@ -1,4 +1,3 @@
 #!/bin/sh
 
-./run T-*.tex T-*/main.tex
-
+./run T-*.tex T-*/main.tex T-*.sh

@@ -51,20 +51,27 @@ def test(latexrun_path, latexrun_args, input_path):
     # Get expectations
     input_src = open(input_path, errors='surrogateescape').read()
 
-    if re.search('^%% known_broken$', input_src, re.I|re.M):
+    if input_path.endswith('.tex'):
+        pre = '^%% '
+    elif input_path.endswith('.sh'):
+        pre = '^## '
+    else:
+        raise ValueError('Unknown extension for test input input_path')
+
+    if re.search(pre + 'known_broken$', input_src, re.I|re.M):
         passed_expect = False
     else:
         passed_expect = True
 
-    m = re.search('^%% status: (.*)', input_src, re.I|re.M)
+    m = re.search(pre + 'status: (.*)', input_src, re.I|re.M)
     if m:
         status_expect = int(m.group(1))
     else:
         status_expect = 0
 
-    m = re.search('^%% output:\n((?:%% .*\n)*)', input_src, re.I|re.M)
+    m = re.search(pre + 'output:\n((?:' + pre + '.*\n)*)', input_src, re.I|re.M)
     if m:
-        output_expect = re.sub('^%% ', '', m.group(1), flags=re.M)
+        output_expect = re.sub(pre, '', m.group(1), flags=re.M)
     else:
         output_expect = ''
 
@@ -82,11 +89,15 @@ def test(latexrun_path, latexrun_args, input_path):
     input_dir = os.path.dirname(input_path)
     outpath = os.path.relpath('output/x.pdf', start=input_dir)
     latexrun_path = os.path.relpath(latexrun_path, start=input_dir)
+    latexrun_cmd = [latexrun_path, '-o', outpath] + latexrun_args
 
-    p = subprocess.Popen([latexrun_path, '-o', outpath,
-                          os.path.basename(input_path)] + latexrun_args,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         cwd = input_dir or None)
+    if input_path.endswith('.tex'):
+        cmd = latexrun_cmd + [os.path.basename(input_path)]
+    elif input_path.endswith('.sh'):
+        cmd = ['sh', os.path.basename(input_path)] + latexrun_cmd
+
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         cwd=input_dir or None)
     output = p.stdout.read().decode('ascii', errors='surrogateescape')
     status = p.wait()
 
