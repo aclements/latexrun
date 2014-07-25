@@ -17,10 +17,14 @@ Features
 
 * Surfaces error messages and warnings.  LaTeX and related tools bury
   errors and useful warnings in vast wastelands of output noise.
-  latexrun parses this spew and prints only the messages that matter,
-  in a format understood by modern tools.  latexrun even figures out
-  file names and line numbers for many BibTeX errors that usually
-  don't indicate their source.
+  latexrun prints only the messages that matter, in a format
+  understood by modern tools.  latexrun even figures out file names
+  and line numbers for many BibTeX errors that usually don't indicate
+  their source.
+
+        paper.tex:140: Overfull \hbox (15pt too wide)
+        paper.tex:400: Reference `sec:eval' on page 5 undefined
+        local.bib:230: empty booktitle in clements:commutativity
 
 * Incremental progress reporting.  latexrun keeps you informed of
   LaTeX's progress, without overwhelming you with output.
