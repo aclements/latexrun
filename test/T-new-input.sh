@@ -30,7 +30,6 @@ rm -rf $TMP
 ## chap1 does not exist
 ## tmp.T-new-input/test.tex:4: error: [LaTeX] File `./tmp.T-new-input/chap1.tex' not found
 ##       at <read *>
-##     from \input{./tmp.T-new-input/chap1}^^M
-##                                         ^
+##     from \input{./tmp.T-new-input/chap1}
 ## tmp.T-new-input/test.tex: error: ==> Fatal error occurred, no output PDF file produced!
 ## chap1 now exists
