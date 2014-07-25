@@ -88,34 +88,37 @@ automatically run LaTeX and BibTeX the right number of times.
 Rubber
 ------
 
-Rubber is a fantastic tool that inspired many features of latexrun.
-Rubber showed that it's possible to fix many of LaTeX's eccentricities
-like iterative builds and unreadable logs.  latexrun is a response to
-Rubber: it attempts to capture its best features while adhering to the
-Unix philosophy of "do one thing well" and further modernizing the
-LaTeX build process.
+Rubber inspired many features of latexrun.  Rubber showed that it's
+possible to abstract away many of LaTeX's eccentricities like
+iterative builds and user-hostile logs.  latexrun is a response to
+Rubber: it attempts to capture its best features while further
+modernizing the LaTeX build process and adhering to the Unix
+philosophy of "do one thing well."
 
-latexrun has more modern defaults and TeX support than Rubber.  In
-addition to pdfTeX, it supports LuaTeX and XeTeX.  It defaults to PDF
-output, rather than DVI output.  It defaults to reporting important
-warnings like unknown references, rather than suppressing all
-warnings.  It defaults to putting all intermediate output in a
-directory, rather than inheriting LaTeX's default behavior of filling
-your source tree with intermediate files.  It also has features that
-interact better with more modern tools, like atomic commit for PDF
-viewers that use file system notification to automatically refresh.
+latexrun has more user-friendly and modern defaults than Rubber.  It
+defaults to reporting important warnings like unknown references,
+rather than suppressing all warnings.  It defaults to PDF output,
+rather than DVI output.  It defaults to putting all intermediate
+output in a directory, rather than inheriting LaTeX's default behavior
+of filling your source tree with intermediate files.  It also has
+features that interact better with modern tools, like atomic commit
+for PDF viewers that use file system notification to automatically
+refresh.
+
+latexrun has robust post-execution dependency analysis, while Rubber
+works by parsing your TeX code.  TeX is, famously, the only thing that
+can correctly parse TeX code and as a result Rubber's dependency
+analysis is fragile.  Simple things like
+```latex
+    \newcommand{\includegraph}[1]{\includegraphics{graph/#1.pdf}}
+    \includegraph{results}
+```
+break Rubber's dependency analysis.
 
 latexrun is simple.  It's intentionally a single, self-contained, and
 reasonably short Python script that you can drop in next to your LaTeX
-sources.  Rubber is modular, which is admirable but leads to higher
-setup cost.
-
-latexrun has robust post-execution dependency analysis, while Rubber
-works by parsing your TeX code.  TeX is famously the only thing that
-can correctly parse TeX code and as a result Rubber's dependency
-analysis is fragile and in occasional and hard-to-predict situations
-requires the user to explicitly declare dependencies, command aliases,
-or extra files to "watch".
+sources so your collaborators don't have to install it.  Rubber is
+modular, which is admirable but results in a non-zero setup cost.
 
 latexrun fits in to your toolchain, while Rubber tries to replace it.
 Rubber goes beyond building LaTeX code with "features" like automatic
