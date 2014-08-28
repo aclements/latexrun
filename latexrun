@@ -1648,7 +1648,12 @@ class BibTeXFilter:
         # bib_one_of_two_expected_err/macro_name_warning/
         if match('(.*?)---?line ([0-9]+) of file (.*)'):
             # Sometimes the real error is printed on the previous line
-            typ, msg = self.__canonicalize(m.group(1) or prev_line)
+            if m.group(1) == 'while executing':
+                # bst_ex_warn.  The real message is on the previous line
+                text = prev_line
+            else:
+                text = m.group(1) or prev_line
+            typ, msg = self.__canonicalize(text)
             return (typ, m.group(3), int(m.group(2)), msg)
 
         # overflow/print_overflow
