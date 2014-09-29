@@ -1341,7 +1341,11 @@ class LaTeXFilter:
         m = re.search(r' in (?:paragraph|alignment) at lines ([0-9]+)--([0-9]+)', msg) or \
             re.search(r' detected at line ([0-9]+)', msg)
         if m:
-            lineno = int(m.group(1))
+            # Sometimes TeX prints crazy line ranges like "at lines
+            # 8500--250".  The lower number seems roughly sane, so use
+            # that.  I'm not sure what causes this, but it may be
+            # related to shipout routines messing up line registers.
+            lineno = min(int(m.group(1)), int(m.groups()[-1]))
             msg = msg[:m.start()]
         else:
             m = re.search(r' while \\output is active', msg)
