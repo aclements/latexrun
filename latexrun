@@ -974,6 +974,8 @@ class LaTeXFilter:
         self.__first_file = None
         self.__fatal_error = False
         self.__missing_includes = False
+        self.__pageno = 1
+        self.__restart_pageno = 1
 
         self.__suppress = {cls: 0 for cls in nowarns}
 
@@ -992,6 +994,7 @@ class LaTeXFilter:
         self.__file_stack = self.__restart_file_stack.copy()
         self.__messages = self.__messages[:self.__restart_messages_len]
         self.__lstart = self.__lend = -1
+        self.__pageno = self.__restart_pageno
 
         # Parse forward
         while self.__pos < len(self.__data):
@@ -1038,6 +1041,7 @@ class LaTeXFilter:
         self.__restart_pos = self.__pos
         self.__restart_file_stack = self.__file_stack.copy()
         self.__restart_messages_len = len(self.__messages)
+        self.__restart_pageno = self.__pageno
 
     def __message(self, typ, lineno, msg, cls=None, filename=None):
         if cls is not None and cls in self.__suppress:
@@ -1157,8 +1161,12 @@ class LaTeXFilter:
         # and various packages.  We'll assume at this point that all
         # parentheses belong to the file name stack or, if they're in
         # random other messages, they're at least balanced and nothing
-        # interesting happens between them.
-        m = re.compile('[(){}\n]').search(self.__data, self.__pos)
+        # interesting happens between them.  For page outs, ship_out
+        # prints a space if not at the beginning of a line, then a
+        # "[", then the page number being shipped out (this is
+        # usually, but not always, followed by "]").
+        m = re.compile(r'[(){}\n]|(?<=[\n ])\[\d+', re.M).\
+            search(self.__data, self.__pos)
         if m is None:
             self.__pos = len(self.__data)
             return
@@ -1169,6 +1177,10 @@ class LaTeXFilter:
             # parsing, since we definitely didn't match any of the
             # known message types above.
             self.__save_restart_point()
+        elif ch == '[':
+            # This is printed at the end of a page, so we're beginning
+            # page n+1.
+            self.__pageno = int(self.__lookingatre(r'\d+').group(0)) + 1
         elif ((self.__data.startswith('`', m.start() - 1) or
                self.__data.startswith('`\\', m.start() - 2)) and
                self.__data.startswith('\'', m.start() + 1)):
@@ -1350,7 +1362,7 @@ class LaTeXFilter:
             # name, which will start with a \.
             if 'hbox' in msg and self.__lookingat('\\'):
                 self.__consume_line(unwrap=True)
-        msg = self.__simplify_message(msg)
+        msg = self.__simplify_message(msg) + ' (page {})'.format(self.__pageno)
         cls = msg.split(None, 1)[0].lower()
         self.__message('warning', lineno, msg, cls=cls)
 

@@ -217,8 +217,6 @@ To do
   finer-grained than `make`'s, it might be necessary to shell out to
   latexrun to do this.
 
-* Include page numbers at least in overfull/underfull box warnings.
-
 * Separate clean data by source file so you can clean a single input
   file's outputs.
 
