@@ -344,35 +344,50 @@ class HashCache:
                 del self.__cache[key]
 hash_cache = HashCache()
 
-class Progress:
-    _INITIALIZED = False
-    _enabled = False
-
-    def __init__(self, prefix):
-        self.__prefix = prefix
-        if not Progress._INITIALIZED:
-            Progress._INITIALIZED = True
-            if debug.enabled or not os.isatty(sys.stdout.fileno()):
-                return
-            # Fetch terminal capabilities we need
+class _Terminfo:
+    def __init__(self):
+        self.__tty = os.isatty(sys.stdout.fileno())
+        if self.__tty:
             curses.setupterm()
-            Progress.__ti = {}
-            for cap in ['cr', 'el', 'rmam', 'smam']:
+        self.__ti = {}
+
+    def __ensure(self, cap):
+        if cap not in self.__ti:
+            if not self.__tty:
+                string = None
+            else:
                 string = curses.tigetstr(cap)
                 if string is None or b'$<' in string:
                     # Don't have this capability or it has a pause
-                    return
-                Progress.__ti[cap] = string
-            Progress._enabled = True
+                    string = None
+            self.__ti[cap] = string
+        return self.__ti[cap]
 
-    def __send_caps(self, *caps):
+    def has(self, *caps):
+        return all(self.__ensure(cap) is not None for cap in caps)
+
+    def send(self, *caps):
         # Flush TextIOWrapper to the binary IO buffer
         sys.stdout.flush()
         for cap in caps:
             # We should use curses.putp here, but it's broken in
             # Python3 because it writes directly to C's buffered
             # stdout and there's no way to flush that.
-            sys.stdout.buffer.write(Progress.__ti[cap])
+            if isinstance(cap, tuple):
+                s = curses.tparm(self.__ensure(cap[0]), *cap[1:])
+            else:
+                s = self.__ensure(cap)
+            sys.stdout.buffer.write(s)
+terminfo = _Terminfo()
+
+class Progress:
+    _enabled = None
+
+    def __init__(self, prefix):
+        self.__prefix = prefix
+        if Progress._enabled is None:
+            Progress._enabled = (not debug.enabled) and \
+                                terminfo.has('cr', 'el', 'rmam', 'smam')
 
     def __enter__(self):
         self.last = ''
@@ -382,7 +397,7 @@ class Progress:
     def __exit__(self, typ, value, traceback):
         if Progress._enabled:
             # Beginning of line and clear
-            self.__send_caps('cr', 'el')
+            terminfo.send('cr', 'el')
             sys.stdout.flush()
 
     def update(self, msg):
@@ -393,10 +408,10 @@ class Progress:
             out += ' ' + msg
         if out != self.last:
             # Beginning of line, clear line, disable wrap
-            self.__send_caps('cr', 'el', 'rmam')
+            terminfo.send('cr', 'el', 'rmam')
             sys.stdout.write(out)
             # Enable wrap
-            self.__send_caps('smam')
+            terminfo.send('smam')
             self.last = out
             sys.stdout.flush()
 
