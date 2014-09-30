@@ -146,6 +146,7 @@ def main():
     # Build
     if not args.file:
         return
+    task_commit = None
     try:
         task_latex = LaTeX(db, args.file, args.latex_cmd, args.latex_args,
                            args.obj_dir, args.nowarns)
@@ -168,6 +169,13 @@ def main():
         print(str(e), file=sys.stderr)
         debug_exc()
         status = 1
+
+    # Report final status, if interesting
+    fstatus = 'There were errors' if task_commit is None else task_commit.status
+    if fstatus:
+        print('{}; {} not updated'.format(
+            fstatus, args.output or os.path.basename(task_latex.get_outname())
+            or 'output'))
     sys.exit(status)
 
 def arg_parser_shlex(string):
@@ -931,20 +939,26 @@ class LaTeXCommit(Task):
                          normalize_input_path(latex_task.get_tex_filename()))
         self.__latex_task = latex_task
         self.__output_path = output_path
+        self.status = 'There were errors'
 
     def _input_latex(self):
         return self.__latex_task.get_status(), self.__latex_task.get_outname()
 
     def _execute(self):
+        self.status = 'There were errors'
+
         # If latex succeeded with output, atomically commit the output
         status, outname = self._input('latex')
         if status != 0 or outname is None:
             debug('not committing (status {}, outname {})', status, outname)
+            if outname is None:
+                self.status = 'No pages of output'
             return RunResult([], None)
 
         commit = self.__output_path or os.path.basename(outname)
         if os.path.abspath(commit) == os.path.abspath(outname):
             debug('skipping commit (outname is commit name)')
+            self.status = None
             return RunResult([], None)
 
         try:
@@ -960,6 +974,7 @@ class LaTeXCommit(Task):
         except OSError as e:
             raise TaskError('error committing latex output: {}'.format(e)) from e
         self._input('file', outname)
+        self.status = None
         return RunResult([commit], None)
 
 class LaTeXFilter:
@@ -1134,12 +1149,6 @@ class LaTeXFilter:
                                self.__simplify_message(
                                    self.__consume_line(unwrap=True).strip()))
                 self.__missing_includes = True
-                return
-            if lookingatre('No pages of output\\.$', re.M):
-                # Inform the user, since it can be confusing that they
-                # don't get any output file at all
-                self.__consume_line()
-                self.__message('warning', None, 'No pages (no output file produced)')
                 return
             # Other things that are common and irrelevant
             if lookingatre(r'(Package|Class|LaTeX) (\w+ )?info: ', re.I):

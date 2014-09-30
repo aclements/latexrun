@@ -32,4 +32,5 @@ rm -rf $TMP
 ##       at <read *>
 ##     from \input{./tmp.T-new-input/chap1}
 ## tmp.T-new-input/test.tex: Fatal error (no output file produced)
+## There were errors; output/x.pdf not updated
 ## chap1 now exists
