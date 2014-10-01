@@ -84,6 +84,9 @@ def main():
         help='Directory for intermediate files and control database '
         '(default: %(default)s)')
     arg_parser.add_argument(
+        '--color', choices=('auto', 'always', 'never'), default='auto',
+        help='When to colorize messages')
+    arg_parser.add_argument(
         '--verbose-cmds', action='store_true', default=False,
         help='Print commands as they are executed')
     arg_parser.add_argument(
@@ -118,6 +121,8 @@ def main():
     sys.stderr = io.TextIOWrapper(
         sys.stderr.buffer, encoding=sys.stderr.encoding,
         errors='surrogateescape', line_buffering=sys.stderr.line_buffering)
+
+    Message.setup_color(args.color)
 
     # Open control database.
     dbpath = os.path.join(args.obj_dir, '.latexrun.db')
@@ -417,21 +422,40 @@ class Progress:
 
 class Message(collections.namedtuple(
         'Message', 'typ filename lineno msg')):
-    def __str__(self):
+    def emit(self):
         if self.filename:
             if self.filename.startswith('./'):
-                out = self.filename[2:]
+                finfo = self.filename[2:]
             else:
-                out = self.filename
+                finfo = self.filename
         else:
-            out = '<no file>'
+            finfo = '<no file>'
         if self.lineno is not None:
-            out += ':' + str(self.lineno)
-        if self.typ != 'warning':
-            out += ': ' + self.typ
-        out += ': ' + self.msg
+            finfo += ':' + str(self.lineno)
+        finfo += ': '
+        if self.__color:
+            terminfo.send('bold')
+        sys.stdout.write(finfo)
 
-        return out
+        if self.typ != 'info':
+            if self.__color:
+                terminfo.send(('setaf', 5 if self.typ == 'warning' else 1))
+            sys.stdout.write(self.typ + ': ')
+        if self.__color:
+            terminfo.send('sgr0')
+        sys.stdout.write(self.msg + '\n')
+
+    @classmethod
+    def setup_color(cls, state):
+        if state == 'never':
+            cls.__color = False
+        elif state == 'always':
+            cls.__color = True
+        elif state == 'auto':
+            cls.__color = terminfo.has('setaf', 'bold', 'sgr0')
+        else:
+            raise ValueError('Illegal color state {:r}'.format(state))
+
 
 ##################################################################
 # Task framework
@@ -613,7 +637,7 @@ class Task:
         return summary['extra']
 
     def report(self):
-        """Report the task's results to stderr and return exit status.
+        """Report the task's results to stdout and return exit status.
 
         This may be called when the task has never executed.
         Subclasses should override this.  The default implementation
@@ -901,7 +925,7 @@ class LaTeX(Task):
         for msg in self.__clean_messages(
                 LaTeXFilter(self.__nowarns).feed(
                     logfile.read(), True).get_messages()):
-            print(msg, file=sys.stderr)
+            msg.emit()
 
         # Return LaTeX's exit status
         return extra['status']
@@ -911,7 +935,7 @@ class LaTeX(Task):
         have_undefined_reference = False
         for msg in msgs:
             if msg.msg == '==> Fatal error occurred, no output PDF file produced!':
-                msg = msg._replace(typ='warning',
+                msg = msg._replace(typ='info',
                                    msg='Fatal error (no output file produced)')
             if msg.msg.startswith('[LaTeX] '):
                 # Strip unnecessary package name
@@ -1035,7 +1059,7 @@ class LaTeXFilter:
             msgs = ['%d %s warning%s' % (count, cls, "s" if count > 1 else "")
                     for cls, count in self.__suppress.items() if count]
             if msgs:
-                self.__message('warning', None,
+                self.__message('info', None,
                                '%s not shown (use -Wall to show them)' %
                                ', '.join(msgs), filename=self.__first_file)
 
@@ -1630,7 +1654,7 @@ class BibTeX(Task):
         log = open(extra['outbase'] + '.blg', 'rt').read()
         inputs = extra['inputs']
         for msg in BibTeXFilter(log, inputs).get_messages():
-            print(msg, file=sys.stderr)
+            msg.emit()
 
         # BibTeX exits with 1 if there are warnings, 2 if there are
         # errors, and 3 if there are fatal errors (sysdep.h).

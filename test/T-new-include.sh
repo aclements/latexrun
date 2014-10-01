@@ -28,6 +28,6 @@ rm -rf $TMP
 
 ## output:
 ## chap1 does not exist
-## tmp.T-new-include/test.tex: No file ./tmp.T-new-include/chap1.tex
+## tmp.T-new-include/test.tex: warning: No file ./tmp.T-new-include/chap1.tex
 ## No pages of output; output/x.pdf not updated
 ## chap1 now exists
