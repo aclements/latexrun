@@ -178,9 +178,13 @@ def main():
     # Report final status, if interesting
     fstatus = 'There were errors' if task_commit is None else task_commit.status
     if fstatus:
-        print('{}; {} not updated'.format(
-            fstatus, args.output or os.path.basename(task_latex.get_outname())
-            or 'output'))
+        output = args.output
+        if output is None:
+            if task_latex.get_outname() is not None:
+                output = os.path.basename(task_latex.get_outname())
+            else:
+                output = 'output'
+        print('{}; {} not updated'.format(fstatus, output))
     sys.exit(status)
 
 def arg_parser_shlex(string):
