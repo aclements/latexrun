@@ -184,7 +184,11 @@ def main():
                 output = os.path.basename(task_latex.get_outname())
             else:
                 output = 'output'
+        if Message._color:
+            terminfo.send('bold', ('setaf', 1))
         print('{}; {} not updated'.format(fstatus, output))
+        if Message._color:
+            terminfo.send('sgr0')
     sys.exit(status)
 
 def arg_parser_shlex(string):
@@ -437,26 +441,26 @@ class Message(collections.namedtuple(
         if self.lineno is not None:
             finfo += ':' + str(self.lineno)
         finfo += ': '
-        if self.__color:
+        if self._color:
             terminfo.send('bold')
         sys.stdout.write(finfo)
 
         if self.typ != 'info':
-            if self.__color:
+            if self._color:
                 terminfo.send(('setaf', 5 if self.typ == 'warning' else 1))
             sys.stdout.write(self.typ + ': ')
-        if self.__color:
+        if self._color:
             terminfo.send('sgr0')
         sys.stdout.write(self.msg + '\n')
 
     @classmethod
     def setup_color(cls, state):
         if state == 'never':
-            cls.__color = False
+            cls._color = False
         elif state == 'always':
-            cls.__color = True
+            cls._color = True
         elif state == 'auto':
-            cls.__color = terminfo.has('setaf', 'bold', 'sgr0')
+            cls._color = terminfo.has('setaf', 'bold', 'sgr0')
         else:
             raise ValueError('Illegal color state {:r}'.format(state))
 
