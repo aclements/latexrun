@@ -836,13 +836,13 @@ class LaTeX(Task):
         pages of output.
         """
         jobname = outname = None
-        for m in re.finditer(r'^Transcript written on (.*)\.log\.$', stdout,
+        for m in re.finditer(r'^Transcript written on "?(.*)\.log"?\.$', stdout,
                              re.MULTILINE):
             jobname = m.group(1)
         if jobname is None:
             print(stdout, file=sys.stderr)
             raise TaskError('failed to extract job name from latex log')
-        for m in re.finditer(r'^Output written on (.*\.[^ .]+) \([0-9]+ page',
+        for m in re.finditer(r'^Output written on "?(.*\.[^ ."]+)"? \([0-9]+ page',
                              stdout, re.MULTILINE):
             outname = m.group(1)
         if outname is None and not \
