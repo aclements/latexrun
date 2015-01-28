@@ -836,9 +836,9 @@ class LaTeX(Task):
         pages of output.
         """
         jobname = outname = None
-        for m in re.finditer(r'^Transcript written on (.*)\.log\.$', stdout,
+        for m in re.finditer(r'^Transcript written on (")?(.*)\.log(")?\.$', stdout,
                              re.MULTILINE):
-            jobname = m.group(1)
+            jobname = m.group(2)
         if jobname is None:
             print(stdout, file=sys.stderr)
             raise TaskError('failed to extract job name from latex log')
