@@ -837,14 +837,14 @@ class LaTeX(Task):
         """
         jobname = outname = None
         for m in re.finditer(r'^Transcript written on "?(.*)\.log"?\.$', stdout,
-                             re.MULTILINE):
-            jobname = m.group(1)
+                             re.MULTILINE | re.DOTALL):
+            jobname = m.group(1).replace('\n', '')
         if jobname is None:
             print(stdout, file=sys.stderr)
             raise TaskError('failed to extract job name from latex log')
         for m in re.finditer(r'^Output written on "?(.*\.[^ ."]+)"? \([0-9]+ page',
-                             stdout, re.MULTILINE):
-            outname = m.group(1)
+                             stdout, re.MULTILINE | re.DOTALL):
+            outname = m.group(1).replace('\n', '')
         if outname is None and not \
            re.search(r'^No pages of output\.$|^! Emergency stop\.$'
                      r'|^!  ==> Fatal error occurred, no output PDF file produced!$',
