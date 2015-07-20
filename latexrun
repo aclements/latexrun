@@ -230,6 +230,18 @@ def mkdir_p(path):
             pass
         else: raise
 
+def nested_parenthesis_end(string, opening, closing):
+    """Return index where closing character corresponds to opening character"""
+    stack = []
+    for i, c in enumerate(string):
+        if c == opening:
+            stack.append(i)
+        elif c == closing and stack:
+            start = stack.pop()
+            if not stack:
+                return i
+    return -1
+
 class DB:
     """A latexrun control database."""
 
@@ -1276,12 +1288,11 @@ class LaTeXFilter:
         elif ch == '{':
             # TeX uses this for various things we want to ignore, like
             # file names and print_mark.  Consume up to the '}'
-            epos = self.__data.find('}', self.__pos)
-            if epos != -1:
-                self.__pos = epos + 1
-            else:
+            epos = nested_parenthesis_end(self.__data[self.__pos-1:], '{', '}')
+            if epos == -1:
                 self.__message('warning', None,
                                "unbalanced `{' in log; file names may be wrong")
+            self.__pos += epos + 1
         elif ch == '}':
             self.__message('warning', None,
                            "extra `}' in log; file names may be wrong")
