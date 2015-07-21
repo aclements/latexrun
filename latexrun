@@ -1529,16 +1529,11 @@ class BibTeX(Task):
     def _input_args(self):
         if self.__is_biber():
             aux_name = os.path.basename(self.__latex_task.get_jobname())
-            biber_args = ["--input-directory", self.__obj_dir,
-                          "--output-directory", self.__obj_dir]
         else:
             aux_name = os.path.basename(self.__latex_task.get_jobname()) + '.aux'
-            biber_args = []
-        return [self.__cmd] + biber_args + self.__cmd_args + [aux_name]
+        return [self.__cmd] + self.__cmd_args + [aux_name]
 
     def _input_cwd(self):
-        if self.__is_biber():
-            return "."
         return os.path.dirname(self.__latex_task.get_jobname())
 
     def _input_auxfile(self, auxname):
