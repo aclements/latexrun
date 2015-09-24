@@ -22,6 +22,7 @@
 
 import sys
 import os
+import errno
 import argparse
 import shlex
 import json
@@ -220,6 +221,14 @@ def verbose_cmd(args, cwd=None, env=None):
                     cmd = '{}={} {}'.format(k, shlex.quote(v), cmd)
         print(cmd, file=sys.stderr)
 verbose_cmd.enabled = False
+
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc:
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else: raise
 
 class DB:
     """A latexrun control database."""
@@ -916,7 +925,7 @@ class LaTeX(Task):
             if os.path.isdir(subdir) and not os.path.isdir(newdir):
                 debug('creating output subdirectory {}'.format(newdir))
                 try:
-                    os.mkdir(newdir)
+                    mkdir_p(newdir)
                 except OSError as e:
                     raise TaskError('failed to create output subdirectory: ' +
                                     str(e)) from e
