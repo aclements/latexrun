@@ -1284,7 +1284,7 @@ class LaTeXFilter:
                 self.__file_stack.pop()
             else:
                 self.__message('warning', None,
-                               "extra `)' in log; file names may be wrong ")
+                               "extra `)' in log; file names may be wrong")
         elif ch == '{':
             # TeX uses this for various things we want to ignore, like
             # file names and print_mark.  Consume up to the '}'
