@@ -1439,14 +1439,15 @@ class LaTeXFilter:
                 return
         # Back up to the end of the known message text
         self.__pos = origpos + m.end()
-        if self.__lookingat('\n'):
+        if self.__lookingatre(r'\s*\n'):
             # We have a newline, so consume it and look for the
             # offending text.
             self.__pos += 1
             # If there is offending text, it will start with a font
             # name, which will start with a \.
-            if 'hbox' in msg and self.__lookingat('\\'):
-                self.__consume_line(unwrap=True)
+            if 'hbox' in msg and self.__lookingatre(r'(\[\]\s?)*\s*\\'):
+                consumed = self.__consume_line(unwrap=True)
+                if self.TRACE: print('consuming `<{}>\''.format(consumed))
         msg = self.__simplify_message(msg) + ' (page {})'.format(self.__pageno)
         cls = msg.split(None, 1)[0].lower()
         self.__message('warning', lineno, msg, cls=cls)
