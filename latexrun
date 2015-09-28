@@ -79,7 +79,7 @@ def main():
         action=ArgParserWarnAction, dest='nowarns', default=set(['underfull']),
         help='Enable/disable warning from CLASS, which can be any package name, '
         'LaTeX warning class (e.g., font), bad box type '
-        '(underfull, overfull, loose, tight), or "all"')
+        '(underfull, overfull, loose, tight), strict parsing (strict-parse),  or "all"')
     arg_parser.add_argument(
         '-O', metavar='DIR', dest='obj_dir', default='latex.out',
         help='Directory for intermediate files and control database '
@@ -230,14 +230,17 @@ def mkdir_p(path):
             pass
         else: raise
 
-def nested_parenthesis_end(string, opening, closing):
+def nested_parenthesis_end(string, opening, closing, lax_checking=False):
     """Return index where closing character corresponds to opening character"""
     stack = []
     for i, c in enumerate(string):
-        if c == opening:
-            stack.append(i)
-        elif c == closing and stack:
-            start = stack.pop()
+        if c in opening:
+            stack.append(c)
+        elif c in closing and stack:
+            start_ch = stack.pop()
+            if not lax_checking and opening.index(start_ch) != closing.index(c):
+                # Mismatch, e.g. expected ')', found '}'
+                return -1
             if not stack:
                 return i
     return -1
@@ -1288,7 +1291,9 @@ class LaTeXFilter:
         elif ch == '{':
             # TeX uses this for various things we want to ignore, like
             # file names and print_mark.  Consume up to the '}'
-            epos = nested_parenthesis_end(self.__data[self.__pos-1:], '{', '}')
+            lax_checking = "strict-parse" in self.__suppress
+            epos = nested_parenthesis_end(self.__data[self.__pos-1:], '{[(', '}])',
+                                          lax_checking=lax_checking)
             if epos == -1:
                 self.__message('warning', None,
                                "unbalanced `{' in log; file names may be wrong")
