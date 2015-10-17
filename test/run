@@ -69,6 +69,11 @@ def test(latexrun_path, latexrun_args, input_path):
     else:
         status_expect = 0
 
+    m = re.search(pre + 'bibtex-cmd: (.*)', input_src, re.I|re.M)
+    if m:
+        bibtex_cmd = m.group(1)
+        latexrun_args += ["--bibtex-cmd",  bibtex_cmd]
+
     m = re.search(pre + 'output:\n((?:' + pre + '.*\n)*)', input_src, re.I|re.M)
     if m:
         output_expect = re.sub(pre, '', m.group(1), flags=re.M)

@@ -1,0 +1,19 @@
+% Test biblatex
+
+\documentclass{article}
+\usepackage[backend=biber]{biblatex}
+\addbibresource{main.bib}
+
+\begin{document}
+    \cite{ent2}
+    \printbibliography
+\end{document}
+
+%% bibtex-cmd: biber
+%% output:
+%% main.tex:8: warning: Citation 'ent2' on page 1 undefined
+%% main.tex:9: warning: Empty bibliography
+%% main.tex: warning: There were undefined references
+%% main.tex: warning: [biblatex] Please (re)run Biber on the file: main and rerun LaTeX afterwards
+%% warning None None I didn't find a database entry for 'ent2' (section 0)
+%% <no file>: warning: I didn't find a database entry for 'ent2' (section 0)
