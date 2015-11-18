@@ -37,6 +37,12 @@ import io
 import traceback
 import time
 
+try:
+    import fcntl
+except ImportError:
+    # Non-UNIX platform
+    fcntl = None
+
 def debug(string, *args):
     if debug.enabled:
         print(string.format(*args), file=sys.stderr)
@@ -238,6 +244,19 @@ class DB:
     def __init__(self, filename):
         self.__filename = filename
 
+        # Make sure database directory exists
+        if os.path.dirname(self.__filename):
+            os.makedirs(os.path.dirname(self.__filename), exist_ok=True)
+
+        # Lock the database if possible. We don't release this lock
+        # until the process exits.
+        lockpath = self.__filename + '.lock'
+        if fcntl is not None:
+            lockfd = os.open(lockpath, os.O_CREAT|os.O_WRONLY|os.O_CLOEXEC, 0o666)
+            # Note that this is actually an fcntl lock, not a lockf
+            # lock. Don't be fooled.
+            fcntl.lockf(lockfd, fcntl.LOCK_EX, 1)
+
         try:
             fp = open(filename, 'r')
         except FileNotFoundError:
@@ -254,9 +273,6 @@ class DB:
 
     def commit(self):
         debug('committing database')
-        # Make sure database directory exists
-        if os.path.dirname(self.__filename):
-            os.makedirs(os.path.dirname(self.__filename), exist_ok=True)
         # Atomically commit database
         tmp_filename = self.__filename + '.tmp'
         with open(tmp_filename, 'w') as fp:
