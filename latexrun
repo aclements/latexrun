@@ -177,6 +177,12 @@ def main():
             print('error: files are still changing after {} iterations; giving up'
                   .format(args.max_iterations), file=sys.stderr)
             status = max(status, 1)
+
+        # Generate a dep file for the makefile to include
+        if status == 0:
+            generate_dep_file(args.obj_dir,
+                              task_latex, task_bibtex, task_commit)
+
     except TaskError as e:
         print(str(e), file=sys.stderr)
         debug_exc()
@@ -235,6 +241,23 @@ def mkdir_p(path):
         if exc.errno == errno.EEXIST and os.path.isdir(path):
             pass
         else: raise
+
+def generate_dep_file(obj_dir, task_latex, task_bibtex, task_commit):
+    try:
+        deps = task_latex.get_dep_filenames() + task_bibtex.get_dep_filenames()
+        target = task_commit.actual_output
+        # First, list the output as depending on everything
+        main_dep = "{}: {}\n".format(target, " ".join(deps))
+        # Then put an empty dependency in for everything else, so
+        # make doesn't get mad if a file is deleted.
+        empty_deps = "".join(dep + ":\n" for dep in deps)
+
+        dep_file = os.path.join(obj_dir, target + ".d")
+        with open(dep_file, 'w') as fp:
+            fp.write(main_dep + empty_deps)
+
+    except OSError as e:
+        raise TaskError('failed to build make dependency file: '+str(e)) from e
 
 class DB:
     """A latexrun control database."""
@@ -644,6 +667,13 @@ class Task:
             raise TaskError('error committing control database {}: {}'.format(
                 getattr(e, 'filename', '<unknown path>'), e)) from e
 
+    def get_dep_filenames(self):
+        """Collect the filenames of all file dependencies"""
+        last_summary = self.__db.get_summary(self.__task_id)
+        if not last_summary: return []
+        deps = last_summary['deps']
+        return [name for tag, dep, _ in deps if tag == 'file' for name in dep]
+
     def __make_summary(self, deps, run_result):
         """Construct a new task summary."""
         return {
@@ -1012,6 +1042,7 @@ class LaTeXCommit(Task):
         self.__latex_task = latex_task
         self.__output_path = output_path
         self.status = 'There were errors'
+        self.actual_output = None
 
     def _input_latex(self):
         return self.__latex_task.get_status(), self.__latex_task.get_outname()
@@ -1045,6 +1076,7 @@ class LaTeXCommit(Task):
                 os.rename(outname + '~', commit)
         except OSError as e:
             raise TaskError('error committing latex output: {}'.format(e)) from e
+        self.actual_output = commit
         self._input('file', outname)
         self.status = None
         return RunResult([commit], None)
