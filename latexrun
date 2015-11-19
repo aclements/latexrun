@@ -1043,6 +1043,7 @@ class LaTeXCommit(Task):
                 debug('commiting {} to {}', outname, commit)
                 shutil.copy(outname, outname + '~')
                 os.rename(outname + '~', commit)
+                os.utime(commit)
         except OSError as e:
             raise TaskError('error committing latex output: {}'.format(e)) from e
         self._input('file', outname)
