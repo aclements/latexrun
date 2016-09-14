@@ -1292,9 +1292,16 @@ class LaTeXFilter:
         elif ch == '{':
             # TeX uses this for various things we want to ignore, like
             # file names and print_mark.  Consume up to the '}'
-            epos = self.__data.find('}', self.__pos)
+            epos = self.__pos
+            while True:
+                newpos = self.__data.find('}', epos) + 1
+                if '{' in self.__data[epos:newpos]:
+                    epos = newpos
+                else:
+                    epos = newpos
+                    break
             if epos != -1:
-                self.__pos = epos + 1
+                self.__pos = epos
             else:
                 self.__message('warning', None,
                                "unbalanced `{' in log; file names may be wrong")
