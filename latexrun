@@ -967,7 +967,8 @@ class LaTeX(Task):
         """Make some standard log messages more user-friendly."""
         have_undefined_reference = False
         for msg in msgs:
-            if msg.msg == '==> Fatal error occurred, no output PDF file produced!':
+            if (msg.msg == '==> Fatal error occurred, no output PDF file produced!' or
+                msg.msg == 'No pages of output.'):
                 msg = msg._replace(typ='info',
                                    msg='Fatal error (no output file produced)')
             if msg.msg.startswith('[LaTeX] '):
@@ -1205,6 +1206,10 @@ class LaTeXFilter:
             # The following messages are always preceded by a newline
             if lookingat('! '):
                 return self.__errmessage()
+            # xelatex does not prefix this error with !.
+            if lookingat('No pages of output.'):
+                self.__consume_line()
+                return self.__message('error', None, 'No pages of output.')
             if lookingat('!pdfTeX error: '):
                 return self.__pdftex_fail()
             if lookingat('Runaway '):
