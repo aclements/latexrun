@@ -99,6 +99,10 @@ def main():
     arg_parser.add_argument(
         '--debug', action='store_true',
         help='Enable detailed debug output')
+    arg_parser.add_argument(
+        '--query', action='store_true',
+        help='Query whether there is work to do (for make integration). '
+        'Outputs "FORCE" if yes, nothing if no.')
     actions = arg_parser.add_argument_group('actions')
     actions.add_argument(
         '--clean-all', action='store_true', help='Delete output files')
@@ -166,6 +170,10 @@ def main():
         task_bibtex = BibTeX(db, task_latex, args.bibtex_cmd, args.bibtex_args,
                              args.nowarns, args.obj_dir)
         tasks = [task_latex, task_commit, task_bibtex]
+        if args.query:
+            query_state([task_latex, task_bibtex])
+            sys.exit(0)
+
         stable = run_tasks(tasks, args.max_iterations)
 
         # Print final task output and gather exit status
@@ -197,6 +205,11 @@ def main():
         if Message._color:
             terminfo.send('sgr0')
     sys.exit(status)
+
+def query_state(tasks):
+    # If there is work to be done, output a phony target
+    if not all(t.stable() for t in tasks):
+        print('FORCE')
 
 def arg_parser_shlex(string):
     """Argument parser for shell token lists."""

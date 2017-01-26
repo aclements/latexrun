@@ -58,13 +58,14 @@ Integrating with make
 =====================
 
 latexrun does its own dependency tracking (at a finer granularity than
-`make`).  Since it also does nothing if no dependencies have changed,
-it's easy to integrate with `make` using phony targets.  Here's a
-complete example:
+`make`). In order to facilitate integration with `make`, latexrun's
+`--query` command will check if there is work to be done and output
+a phony target to depend on if there is. Here's a complete example:
 
 ```Makefile
-.PHONY: FORCE
-paper.pdf: FORCE {files that need to be generated, if any}
+PAPER_DEP:=$(shell latexrun --query paper.tex)
+.PHONY: $(PAPER_DEP)
+paper.pdf: $(PAPER_DEP) {files that need to be generated, if any}
 	latexrun paper.tex
 
 .PHONY: clean
@@ -210,12 +211,6 @@ To do
 
 * Provide a way to disable output filters for things that do their own
   output parsing (e.g., AUCTeX).
-
-* Integrate even better with `make`.  Phony rules are okay, but will
-  force `make` dependencies to be generated even if latexrun
-  ultimately does nothing.  Since latexrun's dependencies are
-  finer-grained than `make`'s, it might be necessary to shell out to
-  latexrun to do this.
 
 * Separate clean data by source file so you can clean a single input
   file's outputs.
