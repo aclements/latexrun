@@ -279,7 +279,7 @@ class DB:
             json.dump(self.__val, fp, indent=2, separators=(',', ': '))
             fp.flush()
             os.fsync(fp.fileno())
-        os.rename(tmp_filename, self.__filename)
+        os.replace(tmp_filename, self.__filename)
 
     def get_summary(self, task_id):
         """Return the recorded summary for the given task or None."""
@@ -1044,7 +1044,7 @@ class LaTeXCommit(Task):
             else:
                 debug('commiting {} to {}', outname, commit)
                 shutil.copy(outname, outname + '~')
-                os.rename(outname + '~', commit)
+                os.replace(outname + '~', commit)
         except OSError as e:
             raise TaskError('error committing latex output: {}'.format(e)) from e
         self._input('file', outname)
