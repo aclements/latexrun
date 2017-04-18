@@ -833,6 +833,8 @@ class LaTeX(Task):
                 data = os.read(stdout.fileno(), 4096)
                 if not data:
                     break
+                if os.name == 'nt':
+                    data = data.replace(b'\r', b'')
                 # See "A note about encoding" above
                 data = data.decode('ascii', errors='surrogateescape')
                 buf.append(data)
