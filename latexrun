@@ -913,7 +913,7 @@ class LaTeX(Task):
             if parts[0] == 'PWD':
                 pwd = parts[1]
             elif parts[0] in ('INPUT', 'OUTPUT'):
-                if parts[1].startswith('/'):
+                if os.path.isabs(parts[1]):
                     path = parts[1]
                 else:
                     # Try to make "nice" paths, especially for clean
@@ -1685,7 +1685,7 @@ class BibTeX(Task):
                 # If this path is relative to the source directory,
                 # clean it up for error reporting and portability of
                 # the dependency DB
-                if filename.startswith('/'):
+                if os.path.isabs(filename):
                     relname = os.path.relpath(filename)
                     if '../' not in relname:
                         filename = relname
