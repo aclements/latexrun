@@ -763,7 +763,8 @@ class LaTeX(Task):
             p = subprocess.Popen(args,
                                  stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT)
+                                 stderr=subprocess.STDOUT,
+                                 env={**os.environ, 'max_print_line': '2147483647'})
             stdout, has_errors, missing_includes = self.__feed_terminal(p.stdout)
             status = p.wait()
         except OSError as e:
@@ -1171,19 +1172,6 @@ class LaTeXFilter:
         self.__ensure_line()
         data = self.__data[self.__pos:self.__lend]
         self.__pos = self.__lend
-        if unwrap:
-            # TeX helpfully wraps all terminal output at 79 columns
-            # (max_print_line).  If requested, unwrap it.  There's
-            # simply no way to do this perfectly, since there could be
-            # a line that happens to be 79 columns.
-            #
-            # We check for >=80 because a bug in LuaTeX causes it to
-            # wrap at 80 columns instead of 79 (LuaTeX #900).
-            while self.__lend - self.__lstart >= 80:
-                if self.TRACE: print('<{}> wrapping'.format(self.__pos))
-                self.__ensure_line()
-                data = data[:-1] + self.__data[self.__pos:self.__lend]
-                self.__pos = self.__lend
         return data
 
     # Parser productions
