@@ -1629,7 +1629,7 @@ class BibTeX(Task):
 
         if self.__is_biber():
             outbase = os.path.join(cwd, outbase)
-        outputs = [outbase + '.bbl', outbase + '.blg']
+        outputs = [outbase+ext for ext in ['.bbl','.blg','.bcf']]
         return RunResult(outputs, {'outbase': outbase, 'status': status,
                                    'inputs': inputs})
 
