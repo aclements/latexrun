@@ -457,10 +457,12 @@ class Message(collections.namedtuple(
         'Message', 'typ filename lineno msg')):
     def emit(self):
         if self.filename:
-            if self.filename.startswith('./'):
-                finfo = self.filename[2:]
-            else:
+            cwd = os.getcwd()
+            if (os.path.isabs(self.filename) and
+                os.path.commonpath([self.filename, cwd]) != cwd):
                 finfo = self.filename
+            else:
+                finfo = os.path.relpath(self.filename, cwd)
         else:
             finfo = '<no file>'
         if self.lineno is not None:
