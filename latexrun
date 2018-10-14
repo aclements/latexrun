@@ -1297,7 +1297,8 @@ class LaTeXFilter:
             if epos == -1:
                 self.__message('warning', None,
                                "unbalanced `{' in log; file names may be wrong")
-            self.__pos += epos + 1
+            else:
+                self.__pos += epos
         elif ch == '}':
             self.__message('warning', None,
                            "extra `}' in log; file names may be wrong")
