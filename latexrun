@@ -85,7 +85,7 @@ def main():
         action=ArgParserWarnAction, dest='nowarns', default=set(['underfull']),
         help='Enable/disable warning from CLASS, which can be any package name, '
         'LaTeX warning class (e.g., font), bad box type '
-        '(underfull, overfull, loose, tight), or "all"')
+        '(underfull, overfull, loose, tight), strict parsing (strict-parse),  or "all"')
     arg_parser.add_argument(
         '-O', metavar='DIR', dest='obj_dir', default='latex.out',
         help='Directory for intermediate files and control database '
@@ -235,6 +235,21 @@ def mkdir_p(path):
         if exc.errno == errno.EEXIST and os.path.isdir(path):
             pass
         else: raise
+
+def nested_parenthesis_end(string, opening, closing, lax_checking=False):
+    """Return index where closing character corresponds to opening character"""
+    stack = []
+    for i, c in enumerate(string):
+        if c in opening:
+            stack.append(c)
+        elif c in closing and stack:
+            start_ch = stack.pop()
+            if not lax_checking and opening.index(start_ch) != closing.index(c):
+                # Mismatch, e.g. expected ')', found '}'
+                return -1
+            if not stack:
+                return i
+    return -1
 
 class DB:
     """A latexrun control database."""
@@ -1288,16 +1303,18 @@ class LaTeXFilter:
                 self.__file_stack.pop()
             else:
                 self.__message('warning', None,
-                               "extra `)' in log; file names may be wrong ")
+                               "extra `)' in log; file names may be wrong")
         elif ch == '{':
             # TeX uses this for various things we want to ignore, like
             # file names and print_mark.  Consume up to the '}'
-            epos = self.__data.find('}', self.__pos)
-            if epos != -1:
-                self.__pos = epos + 1
-            else:
+            lax_checking = "strict-parse" in self.__suppress
+            epos = nested_parenthesis_end(self.__data[self.__pos-1:], '{[(', '}])',
+                                          lax_checking=lax_checking)
+            if epos == -1:
                 self.__message('warning', None,
                                "unbalanced `{' in log; file names may be wrong")
+            else:
+                self.__pos += epos
         elif ch == '}':
             self.__message('warning', None,
                            "extra `}' in log; file names may be wrong")
@@ -1439,14 +1456,15 @@ class LaTeXFilter:
                 return
         # Back up to the end of the known message text
         self.__pos = origpos + m.end()
-        if self.__lookingat('\n'):
+        if self.__lookingatre(r'\s*\n'):
             # We have a newline, so consume it and look for the
             # offending text.
             self.__pos += 1
             # If there is offending text, it will start with a font
             # name, which will start with a \.
-            if 'hbox' in msg and self.__lookingat('\\'):
-                self.__consume_line(unwrap=True)
+            if 'hbox' in msg and self.__lookingatre(r'(\[\]\s?)*\s*\\'):
+                consumed = self.__consume_line(unwrap=True)
+                if self.TRACE: print('consuming `<{}>\''.format(consumed))
         msg = self.__simplify_message(msg) + ' (page {})'.format(self.__pageno)
         cls = msg.split(None, 1)[0].lower()
         self.__message('warning', lineno, msg, cls=cls)

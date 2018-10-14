@@ -1,0 +1,16 @@
+% Test mismatched braces parsing warning.
+
+\documentclass{article}
+
+\begin{document}
+
+    \typeout{Error \{ foo bar }
+
+    baz.
+
+\end{document}
+
+%% status: 0
+
+%% output:
+%% T-mismatched-brace.tex: warning: unbalanced `{' in log; file names may be wrong

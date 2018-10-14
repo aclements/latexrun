@@ -99,7 +99,7 @@ def test(latexrun_path, latexrun_args, input_path):
     if input_path.endswith('.tex'):
         cmd = latexrun_cmd + [os.path.basename(input_path)]
     elif input_path.endswith('.sh'):
-        cmd = ['sh', os.path.basename(input_path)] + latexrun_cmd
+        cmd = ['bash', os.path.basename(input_path)] + latexrun_cmd
 
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          cwd=input_dir or None)
