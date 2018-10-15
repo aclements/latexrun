@@ -965,7 +965,7 @@ class LaTeX(Task):
 
     def __clean_messages(self, msgs):
         """Make some standard log messages more user-friendly."""
-        have_undefined_reference = False
+        has_errors = any(msg.typ == 'error' for msg in msgs)
         for msg in msgs:
             if msg.msg == '==> Fatal error occurred, no output PDF file produced!':
                 msg = msg._replace(typ='info',
@@ -973,10 +973,13 @@ class LaTeX(Task):
             if msg.msg.startswith('[LaTeX] '):
                 # Strip unnecessary package name
                 msg = msg._replace(msg=msg.msg.split(' ', 1)[1])
-            if re.match(r'Reference .* undefined', msg.msg):
-                have_undefined_reference = True
-            if have_undefined_reference and \
-               re.match(r'There were undefined references', msg.msg):
+            if has_errors and re.match(
+                r'.*[Rr]erun to get .* right|.* on page .* undefined', msg.msg
+            ):
+                # Warnings on undefined references may occur in high
+                # numbers when documents fail to build.
+                continue
+            if msg.msg == 'There were undefined references':
                 # LaTeX prints this at the end so the user knows it's
                 # worthwhile looking back at the log.  Since latexrun
                 # makes the earlier messages obvious, this is
