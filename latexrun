@@ -979,7 +979,9 @@ class LaTeX(Task):
                 # Warnings on undefined references may occur in high
                 # numbers when documents fail to build.
                 continue
-            if msg.msg == 'There were undefined references':
+            if re.match(
+                r"There were (multiply-defined labels|undefined references)", msg.msg
+            ):
                 # LaTeX prints this at the end so the user knows it's
                 # worthwhile looking back at the log.  Since latexrun
                 # makes the earlier messages obvious, this is
