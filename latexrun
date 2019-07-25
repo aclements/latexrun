@@ -87,6 +87,12 @@ def main():
         'LaTeX warning class (e.g., font), bad box type '
         '(underfull, overfull, loose, tight), or "all"')
     arg_parser.add_argument(
+        '-E', metavar='CLASS',
+        action=ArgParserWErrorAction, dest='werror', default=set(),
+        help='Promote warning messages to error messages from CLASS, which can '
+        'be any package name, LaTeX warning class (e.g., font), bad box type '
+        '(underfull, overfull, loose, tight), or "all"')
+    arg_parser.add_argument(
         '-O', metavar='DIR', dest='obj_dir', default='latex.out',
         help='Directory for intermediate files and control database '
         '(default: %(default)s)')
@@ -161,7 +167,7 @@ def main():
     task_commit = None
     try:
         task_latex = LaTeX(db, args.file, args.latex_cmd, args.latex_args,
-                           args.obj_dir, args.nowarns)
+                           args.obj_dir, args.nowarns, args.werror)
         task_commit = LaTeXCommit(db, task_latex, args.output)
         task_bibtex = BibTeX(db, task_latex, args.bibtex_cmd, args.bibtex_args,
                              args.nowarns, args.obj_dir)
@@ -215,6 +221,12 @@ class ArgParserWarnAction(argparse.Action):
         else:
             nowarn.discard(value)
         setattr(namespace, self.dest, nowarn)
+
+class ArgParserWErrorAction(argparse.Action):
+    def __call__(self, parser, namespace, value, option_string=None):
+        werror = getattr(namespace, self.dest)
+        werror.add(value)
+        setattr(namespace, self.dest, werror)
 
 def verbose_cmd(args, cwd=None, env=None):
     if verbose_cmd.enabled:
@@ -723,13 +735,14 @@ def normalize_input_path(path):
     return os.path.relpath(path)
 
 class LaTeX(Task):
-    def __init__(self, db, tex_filename, cmd, cmd_args, obj_dir, nowarns):
+    def __init__(self, db, tex_filename, cmd, cmd_args, obj_dir, nowarns, werror):
         super().__init__(db, 'latex::' + normalize_input_path(tex_filename))
         self.__tex_filename = tex_filename
         self.__cmd = cmd
         self.__cmd_args = cmd_args
         self.__obj_dir = obj_dir
         self.__nowarns = nowarns
+        self.__werror = werror
 
         self.__pass = 0
 
@@ -955,13 +968,13 @@ class LaTeX(Task):
 
         # Parse the log
         logfile = open(extra['jobname'] + '.log', 'rt', errors='surrogateescape')
-        for msg in self.__clean_messages(
-                LaTeXFilter(self.__nowarns).feed(
-                    logfile.read(), True).get_messages()):
+        filtered = LaTeXFilter(self.__nowarns, self.__werror)
+        msg_feed = filtered.feed(logfile.read(), True)
+        for msg in self.__clean_messages(msg_feed.get_messages()):
             msg.emit()
 
-        # Return LaTeX's exit status
-        return extra['status']
+        # Return LaTeX's exit status and the Werror status
+        return max(extra['status'], filtered.werror_status)
 
     def __clean_messages(self, msgs):
         """Make some standard log messages more user-friendly."""
@@ -1052,7 +1065,7 @@ class LaTeXCommit(Task):
 class LaTeXFilter:
     TRACE = False               # Set to enable detailed parse tracing
 
-    def __init__(self, nowarns=[]):
+    def __init__(self, nowarns=[], werror=[]):
         self.__data = ''
         self.__restart_pos = 0
         self.__restart_file_stack = []
@@ -1065,6 +1078,8 @@ class LaTeXFilter:
         self.__restart_pageno = 1
 
         self.__suppress = {cls: 0 for cls in nowarns}
+        self.__werror = werror
+        self.__werror_status = 0
 
     def feed(self, data, eof=False):
         """Feed LaTeX log data to the parser.
@@ -1134,6 +1149,11 @@ class LaTeXFilter:
         if cls is not None and cls in self.__suppress:
             self.__suppress[cls] += 1
             return
+        if typ == "warning":
+            if "all" in self.__werror \
+                    or cls is not None and cls in self.__werror:
+                typ = "Werror"
+                self.__werror_status = 1
         filename = filename or (self.__file_stack[-1] if self.__file_stack
                                 else self.__first_file)
         self.__messages.append(Message(typ, filename, lineno, msg))
@@ -1146,6 +1166,11 @@ class LaTeXFilter:
         self.__lend = self.__data.find('\n', self.__pos) + 1
         if self.__lend == 0:
             self.__lend = len(self.__data)
+
+    @property
+    def werror_status(self):
+        """The Werror status"""
+        return self.__werror_status
 
     @property
     def __col(self):
