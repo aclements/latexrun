@@ -384,10 +384,15 @@ hash_cache = HashCache()
 
 class _Terminfo:
     def __init__(self):
-        self.__tty = os.isatty(sys.stdout.fileno())
-        if self.__tty:
-            curses.setupterm()
+        self.__tty = False
+        if os.isatty(sys.stdout.fileno()):
+            self.setupterm()
         self.__ti = {}
+
+    def setupterm(self):
+        if not self.__tty:
+            self.__tty = True
+            curses.setupterm()
 
     def __ensure(self, cap):
         if cap not in self.__ti:
@@ -484,6 +489,7 @@ class Message(collections.namedtuple(
             cls._color = False
         elif state == 'always':
             cls._color = True
+            terminfo.setupterm()
         elif state == 'auto':
             cls._color = terminfo.has('setaf', 'bold', 'sgr0')
         else:
