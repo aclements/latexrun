@@ -1064,7 +1064,11 @@ class LaTeXFilter:
         self.__pageno = 1
         self.__restart_pageno = 1
 
-        self.__suppress = {cls: 0 for cls in nowarns}
+        self.__suppress_all = "all" in nowarns
+        if self.__suppress_all:
+            self.__suppress = {}
+        else:
+            self.__suppress = {cls: 0 for cls in nowarns}
 
     def feed(self, data, eof=False):
         """Feed LaTeX log data to the parser.
@@ -1131,6 +1135,8 @@ class LaTeXFilter:
         self.__restart_pageno = self.__pageno
 
     def __message(self, typ, lineno, msg, cls=None, filename=None):
+        if self.__suppress_all and cls is not None and cls not in self.__suppress:
+            self.__suppress[cls] = 0
         if cls is not None and cls in self.__suppress:
             self.__suppress[cls] += 1
             return
