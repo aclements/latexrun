@@ -1507,12 +1507,26 @@ class BibTeX(Task):
             # affecting system state.  Hence, this task is trivially
             # stable.
             return True
-        if not self.__find_bib_cmds(os.path.dirname(jobname), jobname + '.aux'):
+        if not self.__find_bib_cmds(os.path.dirname(jobname), jobname + '.aux') and \
+           not self.__find_bcf_entries(os.path.dirname(jobname), jobname + '.bcf'):
             # The tex file doesn't refer to any bibliographic data, so
             # don't run bibtex.
             return True
 
         return super().stable()
+
+    def __find_bcf_entries(self, basedir, bcfname):
+        debug('scanning for citations in {}'.format(bcfname))
+        try:
+            bcf_data = open(bcfname, errors='surrogateescape').read()
+        except FileNotFoundError:
+            # The bcf file may not exist if latex aborted
+            return False
+
+        if re.search('<bcf:citekey [^>]*>', bcf_data, flags=re.M):
+            return True
+
+        return False
 
     def __find_bib_cmds(self, basedir, auxname, stack=()):
         debug('scanning for bib commands in {}'.format(auxname))
@@ -1629,7 +1643,7 @@ class BibTeX(Task):
 
         if self.__is_biber():
             outbase = os.path.join(cwd, outbase)
-        outputs = [outbase + '.bbl', outbase + '.blg']
+        outputs = [outbase + ext for ext in ('.bbl', '.blg', '.bcf')]
         return RunResult(outputs, {'outbase': outbase, 'status': status,
                                    'inputs': inputs})
 
